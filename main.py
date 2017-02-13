@@ -48,7 +48,7 @@ with tf.name_scope('loss'):
 with tf.name_scope('train'):
     train_op = tf.train.AdamOptimizer().minimize(loss)
 
-
+# TODO: split data to batches
 def feed_dict(train):
     """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
     if train or FLAGS.fake_data:
@@ -69,6 +69,7 @@ with tf.Session() as sess:
     test_writer = tf.train.SummaryWriter(FLAGS.log_dir + '/test')
     tf.global_variables_initializer().run()
 
+    # TODO: run training always. run validation every _ steps
     for i in range(FLAGS.max_steps):
         if i % 10 == 0:  # Record summaries and test-set accuracy
             summary, acc = sess.run([merged, accuracy], feed_dict=feed_dict(False))
