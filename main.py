@@ -2,7 +2,7 @@ import cifar10
 import utils
 import binary_connect as bc
 import tensorflow as tf
-import numpy
+import numpy as np
 from tensorflow.contrib.losses import hinge_loss
 
 FLAGS = tf.app.flags.FALGS
@@ -49,9 +49,9 @@ with tf.name_scope('loss'):
 with tf.name_scope('train'):
     train_op = tf.train.AdamOptimizer().minimize(loss)
 
+
 # TODO: split data to batches
 def feed_dict(train):
-    
     """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
     if train:
         xs, ys = cifar10.train.next_batch(batch_size)
@@ -59,24 +59,25 @@ def feed_dict(train):
         xs, ys = cifar10.test.images, cifar10.test.labels
     return {x: xs, y: ys, is_train: train}
 
-def next_batch(batch_size):
-     """Return the next `batch_size` examples from this data set."""
-     global start
-     if start=0:
-        perm = np.arange(50000)
-        numpy.random.shuffle(perm)    
-        
-     if batch_size+start>50000:
-        images_part=X_train[perm[start:len(d)]]
-        labels_part = y_train[perm[start:len(d)]]
-        start=0
-     else:
-        images_part=X_train[perm[start:batch_size+start]]
-        labels_part = y_train[perm[start:batch_size+start]]
 
-        start=batch_size+start
-        
-     return images_part,labels_part
+def next_batch(batch_size):
+    """Return the next `batch_size` examples from this data set."""
+    global start
+    if start == 0:
+        perm = np.arange(50000)
+        np.random.shuffle(perm)
+
+    if batch_size + start > 50000:
+        images_part = X_train[perm[start:50000]]
+        labels_part = y_train[perm[start:50000]]
+        start = 0
+    else:
+        images_part = X_train[perm[start:batch_size + start]]
+        labels_part = y_train[perm[start:batch_size + start]]
+        start += batch_size
+
+    return images_part, labels_part
+
 
 # Train the model, and also write summaries.
 # Every 10th step, measure test-set accuracy, and write test summaries
@@ -89,11 +90,11 @@ with tf.Session() as sess:
     test_writer = tf.train.SummaryWriter(FLAGS.log_dir + '/test')
     tf.global_variables_initializer().run()
     global start
-    start=0
-    
+    start = 0
+
     # TODO: run training always. run validation every _ steps
     for i in range(FLAGS.max_steps):
-        
+
         if i % 10 == 0:  # Record summaries and test-set accuracy
             summary, acc = sess.run([merged, accuracy], feed_dict=feed_dict(False))
             test_writer.add_summary(summary, i)
