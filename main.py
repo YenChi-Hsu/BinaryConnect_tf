@@ -7,9 +7,9 @@ FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_integer('max_steps', 50, 'Max number of epochs')
 tf.app.flags.DEFINE_string('log_dir', './log', 'Folder Tensorboard logs')
 
-learning_rate = 0.001
-batch_size = 128
-display_step = 10
+learning_rate = 0.01
+batch_size = 64
+display_step = 1
 data_augmentation = False
 
 # input image dimensions
@@ -21,10 +21,9 @@ img_channels = 3
 def main(argv=None):
     # Get the data, shuffled and split between train and test sets:
     cifar10 = read_data_sets(dst_dir='./dataset', validation_size=5000)
-    # (X_train, y_train), (X_test, y_test) = cifar10.load_data()
-    # print('X_train shape:', X_train.shape)
-    # print(X_train.shape[0], 'train samples')
-    # print(X_test.shape[0], 'test samples')
+    print(cifar10.train.num_examples, 'train samples')
+    print(cifar10.validation.num_examples, 'validation samples')
+    print(cifar10.test.num_examples, 'test samples')
 
     # Input placeholders
     with tf.name_scope('input'):
@@ -35,13 +34,14 @@ def main(argv=None):
     with tf.name_scope('prediction'):
         out = bc.model(x, train)
 
-    with tf.name_scope('accuracy'):
+    with tf.name_scope('accuracy') as nm_scope:
         correct_prediction = tf.equal(tf.argmax(out, 1), tf.argmax(y, 1))
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-        tf.summary.scalar('accuracy_avg', accuracy)
+        tf.summary.scalar(nm_scope, accuracy)
 
-    with tf.name_scope('loss'):
+    with tf.name_scope('loss') as nm_scope:
         loss = tf.reduce_mean(hinge_loss(out, labels=y))
+        tf.summary.scalar(nm_scope, loss)
 
     with tf.name_scope('train'):
         train_op = tf.train.AdamOptimizer().minimize(loss)
@@ -78,11 +78,11 @@ def main(argv=None):
                                                                                         y: batch_y,
                                                                                         train: False})
                     train_writer.add_summary(summary, global_step)
-                    train_writer.add_run_metadata(run_metadata, 'step%03d' % global_step)
                     print("Epoch " + str(epoch) + ", Step " + str(step) + ", Minibatch Loss= " + \
-                          "{:.6f}".format(loss) + ", Training Accuracy= " + \
-                          "{:.5f}".format(acc))
+                          "{:.6f}".format(loss_v) + ", Training Accuracy= " + \
+                          "{:.5f}".format(acc_v))
                 step += 1
+                global_step += 1
 
             # validation epoch
             step = 0
@@ -91,29 +91,28 @@ def main(argv=None):
                 batch_x, batch_y = cifar10.validation.next_batch(batch_size)
                 run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-                summary, accuracy, acc = sess.run([merged, loss, accuracy], options=run_options,
-                                                  run_metadata=run_metadata, feed_dict={x: batch_x,
-                                                                                        y: batch_y,
-                                                                                        train: False})
+                summary, _, acc_v = sess.run([merged, loss, accuracy], options=run_options,
+                                             run_metadata=run_metadata, feed_dict={x: batch_x,
+                                                                                   y: batch_y,
+                                                                                   train: False})
                 validation_writer.add_summary(summary, global_step)
                 validation_writer.add_run_metadata(run_metadata, 'step%03d' % global_step)
                 print("Epoch " + str(epoch) +
                       ", Step " + str(step) +
                       ", Validation Accuracy= " + \
-                      "{:.5f}".format(acc))
+                      "{:.5f}".format(acc_v))
                 step += 1
-
-            global_step += 1
+                global_step += 1
 
         print("Optimization Finished!")
         train_writer.close()
         validation_writer.close()
 
         # Calculate accuracy for 256 mnist test images
-        print("Testing Accuracy:", \
-              sess.run(accuracy, feed_dict={x: cifar10.test.images,
+        acc = sess.run(accuracy, feed_dict={x: cifar10.test.images,
                                             y: cifar10.test.labels,
-                                            train: False}))
+                                            train: False})
+        print("Testing Accuracy:" + str(acc))
 
 
 if __name__ == '__main__':

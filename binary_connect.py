@@ -28,7 +28,7 @@ def binarize_stochastic(w):
     return wb
 
 
-def trainable_var(name, shape, initializer=tf.truncated_normal_initializer(), binary=FLAGS.binary):
+def trainable_var(name, shape, initializer=tf.truncated_normal_initializer(stddev=.05), binary=FLAGS.binary):
     """Helper to create an initialized Variable with or without binarization.
 
     Note that the Variable is initialized with a truncated normal distribution.
@@ -124,11 +124,13 @@ def model(input, is_train):
         with tf.name_scope(layer_name) as layer_scope:
             # This Variable will hold the state of the weights for the layer
             with tf.variable_scope('weights') as var_scope:
-                kernel = tf.cond(is_train,
-                                 lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                                                       kernel_size + [input_dim, output_dim], binary=True),
-                                 lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                                                       kernel_size + [input_dim, output_dim], binary=False))
+                # kernel = tf.cond(is_train,
+                #                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
+                #                                        kernel_size + [input_dim, output_dim]),
+                #                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
+                #                                        kernel_size + [input_dim, output_dim], binary=False))
+                kernel = trainable_var(layer_scope + '_' + var_scope.name,
+                                       kernel_size + [input_dim, output_dim], binary=False)
                 variable_summaries(kernel)
 
             output_tensor = tf.nn.conv2d(input_tensor, kernel, [1, 1, 1, 1], padding='SAME')
