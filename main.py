@@ -79,7 +79,7 @@ with tf.Session() as sess:
             if i % 100 == 99:  # Record execution stats
                 run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-                summary, _ = sess.run([merged, train_step],
+                summary, _ = sess.run([merged, train_op],
                                       feed_dict=feed_dict(True),
                                       options=run_options,
                                       run_metadata=run_metadata)
@@ -87,7 +87,7 @@ with tf.Session() as sess:
                 train_writer.add_summary(summary, i)
                 print('Adding run metadata for', i)
             else:  # Record a summary
-                summary, _ = sess.run([merged, train_step], feed_dict=feed_dict(True))
+                summary, _ = sess.run([merged, train_op], feed_dict=feed_dict(True))
                 train_writer.add_summary(summary, i)
     train_writer.close()
     test_writer.close()
