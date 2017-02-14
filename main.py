@@ -1,18 +1,15 @@
-import cifar10
-import utils
+from cifar10 import read_data_sets
 import binary_connect as bc
 import tensorflow as tf
-import numpy as np
 from tensorflow.contrib.losses import hinge_loss
 
-FLAGS = tf.app.flags.FALGS
-
+FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_integer('max_steps', 50, 'Max number of epochs')
 tf.app.flags.DEFINE_string('log_dir', './log', 'Folder Tensorboard logs')
 
-batch_size = 32
-nb_classes = 10
-nb_epoch = 200
+learning_rate = 0.001
+batch_size = 128
+display_step = 10
 data_augmentation = False
 
 # input image dimensions
@@ -20,98 +17,104 @@ img_rows, img_cols = 32, 32
 # The CIFAR10 images are RGB.
 img_channels = 3
 
-# Get the data, shuffled and split between train and test sets:
-(X_train, y_train), (X_test, y_test) = cifar10.load_data()
-print('X_train shape:', X_train.shape)
-print(X_train.shape[0], 'train samples')
-print(X_test.shape[0], 'test samples')
 
-# Convert class vectors to binary class matrices.
-Y_train = utils.to_categorical(y_train, nb_classes)
-Y_test = utils.to_categorical(y_test, nb_classes)
+def main(argv=None):
+    # Get the data, shuffled and split between train and test sets:
+    cifar10 = read_data_sets(dst_dir='./dataset', validation_size=5000)
+    # (X_train, y_train), (X_test, y_test) = cifar10.load_data()
+    # print('X_train shape:', X_train.shape)
+    # print(X_train.shape[0], 'train samples')
+    # print(X_test.shape[0], 'test samples')
 
-# Input placeholders
-with tf.name_scope('input'):
-    x = tf.placeholder(tf.float32, [None, 32, 32, 3], name='x-input')
-    y = tf.placeholder(tf.float32, [None, 10], name='y-input')
-    is_train = tf.placeholder(tf.bool, name='is_train')
+    # Input placeholders
+    with tf.name_scope('input'):
+        x = tf.placeholder(tf.float32, [None, 32, 32, 3], name='x-input')
+        y = tf.placeholder(tf.float32, [None, 10], name='y-input')
+        train = tf.placeholder(tf.bool, name='train')
 
-with tf.name_scope('prediction'):
-    out = bc.model(x, is_train)
+    with tf.name_scope('prediction'):
+        out = bc.model(x, train)
 
-with tf.name_scope('accuracy'):
-    correct_prediction = tf.equal(tf.argmax(out, 1), tf.argmax(y, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    with tf.name_scope('accuracy'):
+        correct_prediction = tf.equal(tf.argmax(out, 1), tf.argmax(y, 1))
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+        tf.summary.scalar('accuracy_avg', accuracy)
 
-with tf.name_scope('loss'):
-    loss = tf.reduce_mean(hinge_loss(out, labels=y))
+    with tf.name_scope('loss'):
+        loss = tf.reduce_mean(hinge_loss(out, labels=y))
 
-with tf.name_scope('train'):
-    train_op = tf.train.AdamOptimizer().minimize(loss)
+    with tf.name_scope('train'):
+        train_op = tf.train.AdamOptimizer().minimize(loss)
 
+    # Train the model, and also write summaries.
+    # Every 10th step, measure test-set accuracy, and write test summaries
+    # All other steps, run train_step on training data and add training summaries
+    # Launch the graph
+    with tf.Session() as sess:
+        # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
+        merged = tf.summary.merge_all()
+        train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
+        validation_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test')
+        tf.global_variables_initializer().run()
 
-# TODO: split data to batches
-def feed_dict(train):
-    """Make a TensorFlow feed_dict: maps data onto Tensor placeholders."""
-    if train:
-        xs, ys = cifar10.train.next_batch(batch_size)
-    else:
-        xs, ys = cifar10.test.images, cifar10.test.labels
-    return {x: xs, y: ys, is_train: train}
+        # Keep training until reach max iterations
+        global_step = 0
+        for epoch in range(FLAGS.max_steps):
+            # train epoch
+            step = 0
+            while step * batch_size < cifar10.train.num_examples:
+                batch_x, batch_y = cifar10.train.next_batch(batch_size)
+                # Run optimization op
+                summary, _ = sess.run([merged, train_op], feed_dict={x: batch_x,
+                                                                     y: batch_y,
+                                                                     train: True})
+                train_writer.add_summary(summary, global_step)
+                if step > 0 and step % display_step == 0:
+                    # Calculate batch loss, accuracy and evaluation time
+                    run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                    run_metadata = tf.RunMetadata()
+                    summary, loss, acc = sess.run([merged, loss, accuracy], options=run_options,
+                                                  run_metadata=run_metadata, feed_dict={x: batch_x,
+                                                                                        y: batch_y,
+                                                                                        train: False})
+                    train_writer.add_summary(summary, global_step)
+                    train_writer.add_run_metadata(run_metadata, 'step%03d' % global_step)
+                    print("Epoch " + str(epoch) + ", Step " + str(step) + ", Minibatch Loss= " + \
+                          "{:.6f}".format(loss) + ", Training Accuracy= " + \
+                          "{:.5f}".format(acc))
+                step += 1
 
-
-def next_batch(batch_size):
-    """Return the next `batch_size` examples from this data set."""
-    global start
-    if start == 0:
-        perm = np.arange(50000)
-        np.random.shuffle(perm)
-
-    if batch_size + start > 50000:
-        images_part = X_train[perm[start:50000]]
-        labels_part = y_train[perm[start:50000]]
-        start = 0
-    else:
-        images_part = X_train[perm[start:batch_size + start]]
-        labels_part = y_train[perm[start:batch_size + start]]
-        start += batch_size
-
-    return images_part, labels_part
-
-
-# Train the model, and also write summaries.
-# Every 10th step, measure test-set accuracy, and write test summaries
-# All other steps, run train_step on training data and add training summaries
-
-with tf.Session() as sess:
-    # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
-    merged = tf.summary.merge_all()
-    train_writer = tf.train.SummaryWriter(FLAGS.log_dir + '/train', sess.graph)
-    test_writer = tf.train.SummaryWriter(FLAGS.log_dir + '/test')
-    tf.global_variables_initializer().run()
-    global start
-    start = 0
-
-    # TODO: run training always. run validation every _ steps
-    for i in range(FLAGS.max_steps):
-
-        if i % 10 == 0:  # Record summaries and test-set accuracy
-            summary, acc = sess.run([merged, accuracy], feed_dict=feed_dict(False))
-            test_writer.add_summary(summary, i)
-            print('Accuracy at step %s: %s' % (i, acc))
-        else:  # Record train set summaries, and train
-            if i % 100 == 99:  # Record execution stats
+            # validation epoch
+            step = 0
+            while step * batch_size < cifar10.train.num_examples:
+                # Calculate batch loss, accuracy and evaluation time
+                batch_x, batch_y = cifar10.validation.next_batch(batch_size)
                 run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                 run_metadata = tf.RunMetadata()
-                summary, _ = sess.run([merged, train_op],
-                                      feed_dict=feed_dict(True),
-                                      options=run_options,
-                                      run_metadata=run_metadata)
-                train_writer.add_run_metadata(run_metadata, 'step%03d' % i)
-                train_writer.add_summary(summary, i)
-                print('Adding run metadata for', i)
-            else:  # Record a summary
-                summary, _ = sess.run([merged, train_op], feed_dict=feed_dict(True))
-                train_writer.add_summary(summary, i)
-    train_writer.close()
-    test_writer.close()
+                summary, accuracy, acc = sess.run([merged, loss, accuracy], options=run_options,
+                                                  run_metadata=run_metadata, feed_dict={x: batch_x,
+                                                                                        y: batch_y,
+                                                                                        train: False})
+                validation_writer.add_summary(summary, global_step)
+                validation_writer.add_run_metadata(run_metadata, 'step%03d' % global_step)
+                print("Epoch " + str(epoch) +
+                      ", Step " + str(step) +
+                      ", Validation Accuracy= " + \
+                      "{:.5f}".format(acc))
+                step += 1
+
+            global_step += 1
+
+        print("Optimization Finished!")
+        train_writer.close()
+        validation_writer.close()
+
+        # Calculate accuracy for 256 mnist test images
+        print("Testing Accuracy:", \
+              sess.run(accuracy, feed_dict={x: cifar10.test.images,
+                                            y: cifar10.test.labels,
+                                            train: False}))
+
+
+if __name__ == '__main__':
+    tf.app.run()

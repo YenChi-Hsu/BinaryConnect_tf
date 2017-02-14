@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.layers import batch_norm
 
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_boolean('binary', False, "Enable binary connect")
@@ -124,9 +125,9 @@ def model(input, is_train):
             # This Variable will hold the state of the weights for the layer
             with tf.variable_scope('weights') as var_scope:
                 kernel = tf.cond(is_train,
-                                 lambda: trainable_var(layer_scope.name + '_' + var_scope.name,
+                                 lambda: trainable_var(layer_scope + '_' + var_scope.name,
                                                        kernel_size + [input_dim, output_dim], binary=True),
-                                 lambda: trainable_var(layer_scope.name + '_' + var_scope.name,
+                                 lambda: trainable_var(layer_scope + '_' + var_scope.name,
                                                        kernel_size + [input_dim, output_dim], binary=False))
                 variable_summaries(kernel)
 
@@ -135,10 +136,11 @@ def model(input, is_train):
             if pool:
                 with tf.name_scope('pooling'):
                     output_tensor = tf.nn.max_pool(output_tensor, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
-                                                   padding='SAME', name=layer_scope.name + 'P2')
+                                                   padding='SAME', name=layer_scope + 'P2')
 
             with tf.name_scope('batch_norm'):
-                output_tensor = _batch_norm(output_tensor, output_dim, is_train)
+                # output_tensor = _batch_norm(output_tensor, output_dim, is_train)
+                output_tensor = batch_norm(output_tensor, is_training=is_train)
 
             if act:
                 with tf.name_scope('activation'):
@@ -159,16 +161,17 @@ def model(input, is_train):
             # This Variable will hold the state of the weights for the layer
             with tf.variable_scope('weights') as var_scope:
                 weights = tf.cond(is_train,
-                                  lambda: trainable_var(layer_scope.name + '_' + var_scope.name,
+                                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
                                                         [input_dim, output_dim], binary=True),
-                                  lambda: trainable_var(layer_scope.name + '_' + var_scope.name,
+                                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
                                                         [input_dim, output_dim], binary=False))
                 variable_summaries(weights)
 
             output_tensor = tf.matmul(input_tensor, weights)
 
             with tf.name_scope('batch_norm'):
-                output_tensor = _batch_norm(output_tensor, output_dim, is_train)
+                # output_tensor = _batch_norm(output_tensor, output_dim, is_train)
+                output_tensor = batch_norm(output_tensor, is_training=is_train)
 
             if act:
                 with tf.name_scope('activation'):
@@ -192,7 +195,9 @@ def model(input, is_train):
     x = conv2d_bnorm(x, [3, 3], 512, 512, '512C3_2', pool=True)
 
     # 1024FC-1024FC-10FC
-    x = dense_bnorm(x, 512, 1024, '1024FC_1')
+    flat_sz = np.prod(x.get_shape().as_list()[1:])
+    x = tf.reshape(x, [-1, flat_sz], name='reshape')
+    x = dense_bnorm(x, flat_sz, 1024, '1024FC_1')
     x = dense_bnorm(x, 1024, 1024, '1024FC_2')
     x = dense_bnorm(x, 1024, 10, '10FC', act=False)
 
