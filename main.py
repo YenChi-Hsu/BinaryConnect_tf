@@ -156,6 +156,11 @@ def run_training():
         eval_correct = bc.evaluation(logits, labels_placeholder)
         tp_value_total = 0
 
+        # Add a placeholder for logging execution time
+        # frequency_placeholder = tf.placeholder(tf.float32, shape=())
+        # tf.summary.scalar('Execution Time', frequency_placeholder)
+        # TODO: support a d separate summary for metadata (e.g. execution time)
+
         # Build the summary Tensor based on the TF collection of Summaries.
         summary = tf.summary.merge_all()
 
@@ -203,13 +208,15 @@ def run_training():
             # Write the summaries and print an overview fairly often.
             if step % 100 == 0:
                 # Print status to stdout.
+                images_freq = 100 * FLAGS.batch_size / duration
                 print('Step %d: loss = %.2f, correct = %.2f%% (%.3f images/sec)' %
                       (step, loss_value, tp_value_total / FLAGS.batch_size,
-                       100 * FLAGS.batch_size / duration))
+                       images_freq))
                 duration = time.time() - start_time
                 tp_value_total = 0
                 duration = 0
                 # Update the events file.
+                # feed_dict[frequency_placeholder] = images_freq
                 summary_str = sess.run(summary, feed_dict=feed_dict)
                 summary_writer_train.add_summary(summary_str, step)
                 summary_writer_train.flush()
