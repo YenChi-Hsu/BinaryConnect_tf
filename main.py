@@ -48,11 +48,11 @@ def main(argv=None):
     with tf.name_scope('train'):
         train_op = tf.train.AdamOptimizer().minimize(loss)
 
-    with tf.name_scope('Average_summary'):
-        avg_loss_ph = tf.placeholder(tf.float32)
-        avg_acc_ph = tf.placeholder(tf.float32)
-        average_loss = tf.scalar_summary("average_loss", avg_loss_ph)
-        average_acc = tf.scalar_summary("average_acc", avg_acc_ph)
+    # with tf.name_scope('Average_summary'):
+    #     avg_loss_ph = tf.placeholder(tf.float32)
+    #     avg_acc_ph = tf.placeholder(tf.float32)
+    #     average_loss = tf.scalar_summary("average_loss", avg_loss_ph)
+    #     average_acc = tf.scalar_summary("average_acc", avg_acc_ph)
 
     # Train the model, and also write summaries.
     # Every 10th step, measure test-set accuracy, and write test summaries
