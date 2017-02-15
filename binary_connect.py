@@ -162,11 +162,13 @@ def model(input, is_train):
         with tf.name_scope(layer_name) as layer_scope:
             # This Variable will hold the state of the weights for the layer
             with tf.variable_scope('weights') as var_scope:
-                weights = tf.cond(is_train,
-                                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                                                        [input_dim, output_dim], binary=True),
-                                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                                                        [input_dim, output_dim], binary=False))
+                # weights = tf.cond(is_train,
+                #                   lambda: trainable_var(layer_scope + '_' + var_scope.name,
+                #                                         [input_dim, output_dim], binary=True),
+                #                   lambda: trainable_var(layer_scope + '_' + var_scope.name,
+                #                                         [input_dim, output_dim], binary=False))
+                weights = trainable_var(layer_scope + '_' + var_scope.name,
+                                        [input_dim, output_dim], binary=False)
                 variable_summaries(weights)
 
             output_tensor = tf.matmul(input_tensor, weights)
