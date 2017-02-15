@@ -99,7 +99,7 @@ def do_eval(sess,
             images_placeholder,
             labels_placeholder,
             train_placeholder,
-            data_set):
+            data_set, merged_summaries):
     """Runs one evaluation against the full epoch of data.
 
     Args:
@@ -114,15 +114,20 @@ def do_eval(sess,
     true_count = 0  # Counts the number of correct predictions.
     steps_per_epoch = data_set.num_examples // FLAGS.batch_size
     num_examples = steps_per_epoch * FLAGS.batch_size
+    summary = []
     for step in xrange(steps_per_epoch):
         feed_dict = fill_feed_dict(data_set,
                                    images_placeholder,
                                    labels_placeholder,
                                    train_placeholder, False)
-        true_count += sess.run(eval_correct, feed_dict=feed_dict)
+        summ_, tp_ = sess.run([merged_summaries, eval_correct], feed_dict=feed_dict)
+        true_count += tp_
+        summary.append(summ_)
+
     precision = float(true_count) / num_examples
     print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
           (num_examples, true_count, precision))
+    return summary, precision
 
 
 def run_training():
@@ -162,7 +167,8 @@ def run_training():
         sess = tf.Session()
 
         # Instantiate a SummaryWriter to output summaries and the Graph.
-        summary_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
+        summary_writer_train = tf.summary.FileWriter(os.path.join(FLAGS.log_dir, 'train'), sess.graph)
+        summary_writer_val = tf.summary.FileWriter(os.path.join(FLAGS.log_dir, 'validation'), sess.graph)
 
         # And then after everything is built:
 
@@ -199,8 +205,8 @@ def run_training():
                 tp_value_total = 0
                 # Update the events file.
                 summary_str = sess.run(summary, feed_dict=feed_dict)
-                summary_writer.add_summary(summary_str, step)
-                summary_writer.flush()
+                summary_writer_train.add_summary(summary_str, step)
+                summary_writer_train.flush()
 
             # Save a checkpoint and evaluate the model periodically.
             if (step + 1) % 1000 == 0 or (step + 1) == FLAGS.max_steps:
@@ -213,15 +219,19 @@ def run_training():
                         images_placeholder,
                         labels_placeholder,
                         train_placeholder,
-                        data_sets.train)
+                        data_sets.train, summary)
                 # Evaluate against the validation set.
                 print('Validation Data Eval:')
-                do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        train_placeholder,
-                        data_sets.validation)
+                summary_str, _ = do_eval(sess,
+                                      eval_correct,
+                                      images_placeholder,
+                                      labels_placeholder,
+                                      train_placeholder,
+                                      data_sets.validation, summary)
+                # TODO: find a way to collect summaries for validation
+                # summary_writer_val.add_summary(summary_str, step)
+                # summary_writer_val.flush()
+
                 # Evaluate against the test set.
                 print('Test Data Eval:')
                 do_eval(sess,
@@ -229,7 +239,7 @@ def run_training():
                         images_placeholder,
                         labels_placeholder,
                         train_placeholder,
-                        data_sets.test)
+                        data_sets.test, summary)
 
 
 def main(_):
