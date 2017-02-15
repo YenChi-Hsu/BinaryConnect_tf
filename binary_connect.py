@@ -271,16 +271,16 @@ def loss(logits, labels):
     if update_ops:
         updates = tf.group(*update_ops)
         with tf.control_dependencies([updates]):
-            # cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            #     logits=logits, labels=labels, name='xentropy')
-            labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
-            cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
+            cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                logits=logits, labels=labels, name='xentropy')
+            # labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
+            # cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
             loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
     else:
-        # cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        #     logits=logits, labels=labels, name='xentropy')
-        labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
-        cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
+        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            logits=logits, labels=labels, name='xentropy')
+        # labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
+        # cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
         loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
 
     tf.summary.scalar('loss', loss)
