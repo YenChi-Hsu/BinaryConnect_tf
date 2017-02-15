@@ -1,226 +1,152 @@
-# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-
-"""Trains and Evaluates the Binary-Connect network using a feed dictionary."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# pylint: disable=missing-docstring
-import argparse
-import os.path
-import sys
-import time
-
-from six.moves import xrange  # pylint: disable=redefined-builtin
-import tensorflow as tf
-
-import cifar10
+from cifar10 import read_data_sets
 import binary_connect as bc
+import tensorflow as tf
+from tensorflow.contrib.losses import hinge_loss
+import datetime
 
-# Basic model parameters as external flags.
 FLAGS = tf.app.flags.FLAGS
+tf.app.flags.DEFINE_integer('max_steps', 50, 'Max number of epochs')
+tf.app.flags.DEFINE_string('log_dir', './log', 'Folder Tensorboard logs')
+
+learning_rate = 0.01
+batch_size = 64
+display_step = 20
+data_augmentation = False
+
+# input image dimensions
+img_rows, img_cols = 32, 32
+# The CIFAR10 images are RGB.
+img_channels = 3
+dtstr = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
 
 
-def placeholder_inputs(batch_size):
-    """Generate placeholder variables to represent the input tensors.
+def main(argv=None):
+    # Get the data, shuffled and split between train and test sets:
+    cifar10 = read_data_sets(dst_dir='./dataset', validation_size=5000)
+    print(cifar10.train.num_examples, 'train samples')
+    print(cifar10.validation.num_examples, 'validation samples')
+    print(cifar10.test.num_examples, 'test samples')
 
-    These placeholders are used as inputs by the rest of the model building
-    code and will be fed from the downloaded data in the .run() loop, below.
+    # Input placeholders
+    with tf.name_scope('input'):
+        x = tf.placeholder(tf.float32, [None, 32, 32, 3], name='x-input')
+        y = tf.placeholder(tf.float32, [None, 10], name='y-input')
+        train = tf.placeholder(tf.bool, name='train')
 
-    Args:
-      batch_size: The batch size will be baked into both placeholders.
+    with tf.name_scope('prediction'):
+        out = bc.model(x, train)
 
-    Returns:
-      images_placeholder: Images placeholder.
-      labels_placeholder: Labels placeholder.
-      train_placeholder: Training mode indicator placeholder.
-    """
-    # Note that the shapes of the placeholders match the shapes of the full
-    # image and label tensors, except the first dimension is now batch_size
-    # rather than the full size of the train or test data sets.
-    images_placeholder = tf.placeholder(tf.float32, shape=(batch_size, cifar10.IM_ROWS, cifar10.IM_COLS, cifar10.IM_CH))
-    labels_placeholder = tf.placeholder(tf.int32, shape=(batch_size))
-    train_placeholder = tf.placeholder(tf.bool)
-    return images_placeholder, labels_placeholder, train_placeholder
+    with tf.name_scope('accuracy') as nm_scope:
+        correct_prediction = tf.equal(tf.argmax(out, 1), tf.argmax(y, 1))
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+        tf.summary.scalar(nm_scope, accuracy)
 
+    with tf.name_scope('loss') as nm_scope:
+        loss = tf.reduce_mean(hinge_loss(out, labels=y))
+        tf.summary.scalar(nm_scope, loss)
 
-def fill_feed_dict(data_set, images_pl, labels_pl):
-    """Fills the feed_dict for training the given step.
+    with tf.name_scope('train'):
+        train_op = tf.train.AdamOptimizer().minimize(loss)
 
-    A feed_dict takes the form of:
-    feed_dict = {
-        <placeholder>: <tensor of values to be passed for placeholder>,
-        ....
-    }
+    # with tf.name_scope('Average_summary'):
+    #     avg_loss_ph = tf.placeholder(tf.float32)
+    #     avg_acc_ph = tf.placeholder(tf.float32)
+    #     average_loss = tf.scalar_summary("average_loss", avg_loss_ph)
+    #     average_acc = tf.scalar_summary("average_acc", avg_acc_ph)
 
-    Args:
-      data_set: The set of images and labels, from input_data.read_data_sets()
-      images_pl: The images placeholder, from placeholder_inputs().
-      labels_pl: The labels placeholder, from placeholder_inputs().
+    # Train the model, and also write summaries.
+    # Every 10th step, measure test-set accuracy, and write test summaries
+    # All other steps, run train_step on training data and add training summaries
+    # Launch the graph
+    with tf.Session() as sess:
+        # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
+        merged = tf.summary.merge_all()
+        train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train/' + dtstr, sess.graph)
+        validation_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test/' + dtstr)
+        tf.global_variables_initializer().run()
 
-    Returns:
-      feed_dict: The feed dictionary mapping from placeholders to values.
-    """
+        # Keep training until reach max iterations
+        global_step = 0
+        for epoch in range(FLAGS.max_steps):
+            # train epoch
+            step = 0
+            while step * batch_size < cifar10.train.num_examples:
+                global_step += 1
+                batch_x, batch_y = cifar10.train.next_batch(batch_size)
+                # Run optimization op
+                summary, _ = sess.run([merged, train_op], feed_dict={x: batch_x,
+                                                                     y: batch_y,
+                                                                     train: True})
+                # train_writer.add_summary(summary, train_step)
+                if step > 0 and step % display_step == 0:
+                    # Calculate batch loss, accuracy and evaluation time
+                    run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                    run_metadata = tf.RunMetadata()
+                    summary, loss_v, acc_v = sess.run([merged, loss, accuracy], options=run_options,
+                                                      run_metadata=run_metadata, feed_dict={x: batch_x,
+                                                                                            y: batch_y,
+                                                                                            train: False})
+                    train_writer.add_summary(summary, global_step)
+                    train_writer.add_run_metadata(run_metadata, 'step%03d' % global_step)
+                    print(
+                        "Epoch {:d}, Step {:d} ({:d}/{:d} samples), Minibatch Loss={:.6f}, Training Accuracy={:.5f}".format(
+                            epoch, step, step * batch_size,
+                            cifar10.train.num_examples, loss_v, acc_v))
+                    # print("Epoch " + str(epoch) + ", Step " + str(step) + ", Minibatch Loss= " + \
+                    #       "{:.6f}".format(loss_v) + ", Training Accuracy= " + \
+                    #       "{:.5f}".format(acc_v))
+                step += 1
 
-    # Create the feed_dict for the placeholders filled with the next
-    # `batch size` examples.
-    images_feed, labels_feed = data_set.next_batch(FLAGS.batch_size)
-    feed_dict = {
-        images_pl: images_feed,
-        labels_pl: labels_feed,
-    }
-    return feed_dict
+            # TODO: at the end of every epoch, preform a validation epoch and update tensorboard summaries
+            # # validation epoch
+            # step = 0
+            # losses = []
+            # accs = []
+            # while step * batch_size < cifar10.validation.num_examples:
+            #     batch_x, batch_y = cifar10.validation.next_batch(batch_size)
+            #     summary, loss_v, acc_v = sess.run([merged, loss, accuracy],
+            #                                       feed_dict={x: batch_x,
+            #                                                  y: batch_y,
+            #                                                  train: False})
+            #     losses.append(loss_v)
+            #     accs.append(acc_v)
+            #     print(
+            #         "Epoch {:d}, Step {:d} ({:d}/{:d} samples), Minibatch Loss={:.6f}, Validation Accuracy={:.5f}".format(
+            #             epoch, step, step * batch_size,
+            #             cifar10.validation.num_examples, loss_v, acc_v))
+            #
+            # sum_loss, sum_acc = sess.run([average_loss, average_acc],
+            #                              feed_dict={
+            #                                  avg_loss_ph: sum(losses) / len(losses),
+            #                                  avg_acc_ph: sum(accs) / len(accs)
+            #                              })
+            # train_writer.add_summary(sum_loss, global_step)
+            # train_writer.add_summary(sum_acc, global_step)
 
+        print("Optimization Finished!")
+        train_writer.close()
+        validation_writer.close()
 
-def do_eval(sess,
-            eval_correct,
-            images_placeholder,
-            labels_placeholder,
-            data_set):
-    """Runs one evaluation against the full epoch of data.
+        # step = 0
+        # while step * batch_size < cifar10.validation.num_examples:
+        #     # Calculate batch loss, accuracy and evaluation time
+        #     batch_x, batch_y = cifar10.validation.next_batch(batch_size)
+        #     summary, _, acc_v = sess.run([merged, loss, accuracy],
+        #                                  feed_dict={x: batch_x,
+        #                                             y: batch_y,
+        #                                             train: False})
+        #     print("Epoch " + str(epoch) +
+        #           ", Step " + str(step) +
+        #           ", Validation Accuracy= " + \
+        #           "{:.5f}".format(acc_v))
+        #     step += 1
 
-    Args:
-      sess: The session in which the model has been trained.
-      eval_correct: The Tensor that returns the number of correct predictions.
-      images_placeholder: The images placeholder.
-      labels_placeholder: The labels placeholder.
-      data_set: The set of images and labels to evaluate, from
-        input_data.read_data_sets().
-    """
-    # And run one epoch of eval.
-    true_count = 0  # Counts the number of correct predictions.
-    steps_per_epoch = data_set.num_examples // FLAGS.batch_size
-    num_examples = steps_per_epoch * FLAGS.batch_size
-    for step in xrange(steps_per_epoch):
-        feed_dict = fill_feed_dict(data_set,
-                                   images_placeholder,
-                                   labels_placeholder)
-        true_count += sess.run(eval_correct, feed_dict=feed_dict)
-    precision = float(true_count) / num_examples
-    print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
-          (num_examples, true_count, precision))
+        # Calculate accuracy for 256 mnist test images
+        acc = sess.run(accuracy, feed_dict={x: cifar10.test.images,
+                                            y: cifar10.test.labels,
+                                            train: False})
+        print("Testing Accuracy:" + str(acc))
 
-
-def run_training():
-    """Train MNIST for a number of steps."""
-    # Get the sets of images and labels for training, validation, and
-    # test on MNIST.
-    data_sets = cifar10.read_data_sets(FLAGS.input_data_dir, FLAGS.fake_data)
-
-    # Tell TensorFlow that the model will be built into the default Graph.
-    with tf.Graph().as_default():
-        # Generate placeholders for the images and labels.
-        images_placeholder, labels_placeholder, train_placeholder = placeholder_inputs(FLAGS.batch_size)
-
-        # Build a Graph that computes predictions from the inference model.
-        logits = bc.model(images_placeholder, train_placeholder)
-        # logits = cifar10.inference(images_placeholder,
-        #                          FLAGS.hidden1,
-        #                          FLAGS.hidden2)
-
-        # Add to the Graph the Ops for loss calculation.
-        loss = bc.loss(logits, labels_placeholder)
-
-        # Add to the Graph the Ops that calculate and apply gradients.
-        train_op = bc.training(loss, FLAGS.learning_rate)
-
-        # Add the Op to compare the logits to the labels during evaluation.
-        eval_correct = cifar10.evaluation(logits, labels_placeholder)
-
-        # Build the summary Tensor based on the TF collection of Summaries.
-        summary = tf.summary.merge_all()
-
-        # Add the variable initializer Op.
-        init = tf.global_variables_initializer()
-
-        # Create a saver for writing training checkpoints.
-        saver = tf.train.Saver()
-
-        # Create a session for running Ops on the Graph.
-        sess = tf.Session()
-
-        # Instantiate a SummaryWriter to output summaries and the Graph.
-        summary_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
-
-        # And then after everything is built:
-
-        # Run the Op to initialize the variables.
-        sess.run(init)
-
-        # Start the training loop.
-        for step in xrange(FLAGS.max_steps):
-            start_time = time.time()
-
-            # Fill a feed dictionary with the actual set of images and labels
-            # for this particular training step.
-            feed_dict = fill_feed_dict(data_sets.train,
-                                       images_placeholder,
-                                       labels_placeholder)
-
-            # Run one step of the model.  The return values are the activations
-            # from the `train_op` (which is discarded) and the `loss` Op.  To
-            # inspect the values of your Ops or variables, you may include them
-            # in the list passed to sess.run() and the value tensors will be
-            # returned in the tuple from the call.
-            _, loss_value = sess.run([train_op, loss],
-                                     feed_dict=feed_dict)
-
-            duration = time.time() - start_time
-
-            # Write the summaries and print an overview fairly often.
-            if step % 100 == 0:
-                # Print status to stdout.
-                print('Step %d: loss = %.2f (%.3f sec)' % (step, loss_value, duration))
-                # Update the events file.
-                summary_str = sess.run(summary, feed_dict=feed_dict)
-                summary_writer.add_summary(summary_str, step)
-                summary_writer.flush()
-
-            # Save a checkpoint and evaluate the model periodically.
-            if (step + 1) % 1000 == 0 or (step + 1) == FLAGS.max_steps:
-                checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
-                saver.save(sess, checkpoint_file, global_step=step)
-                # Evaluate against the training set.
-                print('Training Data Eval:')
-                do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        data_sets.train)
-                # Evaluate against the validation set.
-                print('Validation Data Eval:')
-                do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        data_sets.validation)
-                # Evaluate against the test set.
-                print('Test Data Eval:')
-                do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        data_sets.test)
-
-
-def main(_):
-    if tf.gfile.Exists(FLAGS.log_dir):
-        tf.gfile.DeleteRecursively(FLAGS.log_dir)
-    tf.gfile.MakeDirs(FLAGS.log_dir)
-    run_training()
 
 if __name__ == '__main__':
     tf.app.run()
