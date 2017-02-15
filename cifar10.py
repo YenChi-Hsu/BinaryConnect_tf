@@ -31,6 +31,10 @@ import _pickle as cPickle
 from utils import maybe_download, to_categorical
 
 NB_CLASSES = 10
+# input image dimensions
+IM_ROWS, IM_COLS = 32, 32
+# The CIFAR10 images are RGB.
+IM_CH = 3
 
 class DataSet(object):
     def __init__(self,
