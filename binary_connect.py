@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.layers import batch_norm, convolution2d, fully_connected, max_pool2d, flatten
+# from tensorflow.contrib.layers import batch_norm, convolution2d, fully_connected, max_pool2d, flatten
+from tensorflow.python.ops import init_ops
 import cifar10
 
 FLAGS = tf.app.flags.FLAGS
@@ -117,36 +118,35 @@ def _batch_norm(x, n_out, phase_train):
 
 
 def inference_ref(input, is_train, use_bnorm=False):
-    if use_bnorm:
-        x = convolution2d(inputs=input, num_outputs=32, kernel_size=3, padding="SAME",
-                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
-        x = convolution2d(x, num_outputs=32, kernel_size=3, padding="SAME",
-                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
-        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
+    with tf.name_scope('conv1'):
+        x = tf.layers.conv2d(inputs=input, filters=32, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.conv2d(inputs=x, filters=32, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
-        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu,
-                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
-        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu,
-                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
-        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
+    with tf.name_scope('conv2'):
+        x = tf.layers.conv2d(inputs=x, filters=64, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.conv2d(inputs=x, filters=64, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
-        x = flatten(inputs=x)
-        x = fully_connected(inputs=x, num_outputs=512, activation_fn=tf.nn.relu,
-                            normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
-        x = fully_connected(inputs=x, num_outputs=cifar10.NB_CLASSES, activation_fn=tf.nn.relu)
+    with tf.name_scope('dense1'):
+        # x = tf.reshape(x, [-1, np.prod(x.get_shape()[1:])])
+        x = tf.reshape(x, [x.get_shape()[0].value, -1])
+        x = tf.layers.dense(inputs=x, units=512, activation=tf.nn.relu)
 
-    else:
-        x = convolution2d(inputs=input, num_outputs=32, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
-        x = convolution2d(inputs=x, num_outputs=32, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
-        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
-
-        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
-        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
-        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
-
-        x = flatten(inputs=x)
-        x = fully_connected(inputs=x, num_outputs=512, activation_fn=tf.nn.relu)
-        x = fully_connected(inputs=x, num_outputs=cifar10.NB_CLASSES, activation_fn=tf.nn.relu)
+    with tf.name_scope('dense2'):
+        x = tf.layers.dense(inputs=x, units=cifar10.NB_CLASSES)
 
     return x
 
@@ -271,12 +271,16 @@ def loss(logits, labels):
     if update_ops:
         updates = tf.group(*update_ops)
         with tf.control_dependencies([updates]):
-            cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                logits=logits, labels=labels, name='xentropy')
+            # cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            #     logits=logits, labels=labels, name='xentropy')
+            labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
+            cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
             loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
     else:
-        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=logits, labels=labels, name='xentropy')
+        # cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        #     logits=logits, labels=labels, name='xentropy')
+        labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
+        cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
         loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
 
     tf.summary.scalar('loss', loss)
@@ -303,8 +307,8 @@ def training(loss, learning_rate):
     # Add a scalar summary for the snapshot loss.
     tf.summary.scalar('loss', loss)
     # Create the gradient descent optimizer with the given learning rate.
-    # optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    optimizer = tf.train.AdamOptimizer(learning_rate)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    # optimizer = tf.train.AdamOptimizer(learning_rate)
     # Create a variable to track the global step.
     global_step = tf.Variable(0, name='global_step', trainable=False)
     # Use the optimizer to apply the gradients that minimize the loss
