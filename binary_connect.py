@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.layers import batch_norm
+from tensorflow.contrib.layers import batch_norm, convolution2d, fully_connected, max_pool2d, flatten
+import cifar10
 
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_boolean('binary', False, "Enable binary connect")
@@ -115,34 +116,52 @@ def _batch_norm(x, n_out, phase_train):
     return normed
 
 
-def loss(logits, labels):
-    """Calculates the loss from the logits and the labels.
+def inference_ref(input, is_train, use_bnorm=False):
+    if use_bnorm:
+        x = convolution2d(inputs=input, num_outputs=32, kernel_size=3, padding="SAME",
+                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
+        x = convolution2d(x, num_outputs=32, kernel_size=3, padding="SAME",
+                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
+        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
 
-    Args:
-      logits: Logits tensor, float - [batch_size, NUM_CLASSES].
-      labels: Labels tensor, int32 - [batch_size].
+        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu,
+                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
+        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu,
+                          normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
+        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
 
-    Returns:
-      loss: Loss tensor of type float.
-    """
-    labels = tf.to_int64(labels)
-    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        logits, labels, name='xentropy')
-    loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
-    return loss
+        x = flatten(inputs=x)
+        x = fully_connected(inputs=x, num_outputs=512, activation_fn=tf.nn.relu,
+                            normalizer_fn=batch_norm, normalizer_params={'is_training': is_train})
+        x = fully_connected(inputs=x, num_outputs=cifar10.NB_CLASSES, activation_fn=tf.nn.relu)
+
+    else:
+        x = convolution2d(inputs=input, num_outputs=32, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
+        x = convolution2d(inputs=x, num_outputs=32, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
+        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
+
+        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
+        x = convolution2d(inputs=x, num_outputs=64, kernel_size=3, padding="SAME", activation_fn=tf.nn.relu)
+        x = max_pool2d(inputs=x, stride=2, kernel_size=2, padding="SAME")
+
+        x = flatten(inputs=x)
+        x = fully_connected(inputs=x, num_outputs=512, activation_fn=tf.nn.relu)
+        x = fully_connected(inputs=x, num_outputs=cifar10.NB_CLASSES, activation_fn=tf.nn.relu)
+
+    return x
 
 
 def inference(input, is_train):
     """Build the MNIST model up to where it may be used for inference.
 
     Args:
-      images: Images placeholder, from inputs().
-      hidden1_units: Size of the first hidden layer.
-      hidden2_units: Size of the second hidden layer.
+      input: Images placeholder, from inputs().
+      is_train: Training mode indicator placeholder.
 
     Returns:
-      softmax_linear: Output tensor with the computed logits.
+      output_tensor: Output tensor with the computed logits.
     """
+
     # helper functions
     def conv2d_bnorm(input_tensor, kernel_size, input_dim, output_dim, layer_name, act=True, pool=False):
         """Reusable code for making a conv-bnorm-act neural net block.
@@ -246,9 +265,21 @@ def loss(logits, labels):
       loss: Loss tensor of type float.
     """
     labels = tf.to_int64(labels)
-    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-        logits, labels, name='xentropy')
-    loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
+
+    # if batch_norm is used, add dependency
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    if update_ops:
+        updates = tf.group(*update_ops)
+        with tf.control_dependencies([updates]):
+            cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                logits=logits, labels=labels, name='xentropy')
+            loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
+    else:
+        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            logits=logits, labels=labels, name='xentropy')
+        loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
+
+    tf.summary.scalar('loss', loss)
     return loss
 
 
@@ -272,36 +303,8 @@ def training(loss, learning_rate):
     # Add a scalar summary for the snapshot loss.
     tf.summary.scalar('loss', loss)
     # Create the gradient descent optimizer with the given learning rate.
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    # Create a variable to track the global step.
-    global_step = tf.Variable(0, name='global_step', trainable=False)
-    # Use the optimizer to apply the gradients that minimize the loss
-    # (and also increment the global step counter) as a single training step.
-    train_op = optimizer.minimize(loss, global_step=global_step)
-    return train_op
-
-
-def training(loss, learning_rate):
-    """Sets up the training Ops.
-
-    Creates a summarizer to track the loss over time in TensorBoard.
-
-    Creates an optimizer and applies the gradients to all trainable variables.
-
-    The Op returned by this function is what must be passed to the
-    `sess.run()` call to cause the model to train.
-
-    Args:
-      loss: Loss tensor, from loss().
-      learning_rate: The learning rate to use for gradient descent.
-
-    Returns:
-      train_op: The Op for training.
-    """
-    # Add a scalar summary for the snapshot loss.
-    tf.summary.scalar('loss', loss)
-    # Create the gradient descent optimizer with the given learning rate.
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    # optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    optimizer = tf.train.AdamOptimizer(learning_rate)
     # Create a variable to track the global step.
     global_step = tf.Variable(0, name='global_step', trainable=False)
     # Use the optimizer to apply the gradients that minimize the loss
@@ -328,4 +331,6 @@ def evaluation(logits, labels):
     # of all logits for that example.
     correct = tf.nn.in_top_k(logits, labels, 1)
     # Return the number of true entries.
-    return tf.reduce_sum(tf.cast(correct, tf.int32))
+    tp = tf.reduce_sum(tf.cast(correct, tf.int32))
+    tf.summary.scalar('true_positive', tp)
+    return tp

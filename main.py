@@ -41,8 +41,6 @@ tf.app.flags.DEFINE_string('log_dir', './log', 'Directory to put the log data.')
 display_step = 20
 data_augmentation = False
 
-dtstr = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-
 
 def placeholder_inputs(batch_size):
     """Generate placeholder variables to represent the input tensors.
@@ -62,7 +60,7 @@ def placeholder_inputs(batch_size):
     # image and label tensors, except the first dimension is now batch_size
     # rather than the full size of the train or test data sets.
     images_placeholder = tf.placeholder(tf.float32, shape=(batch_size, cifar10.IM_ROWS, cifar10.IM_COLS, cifar10.IM_CH))
-    labels_placeholder = tf.placeholder(tf.int32, shape=(batch_size))
+    labels_placeholder = tf.placeholder(tf.int32, shape=batch_size)
     train_placeholder = tf.placeholder(tf.bool)
     return images_placeholder, labels_placeholder, train_placeholder
 
@@ -139,7 +137,7 @@ def run_training():
         images_placeholder, labels_placeholder, train_placeholder = placeholder_inputs(FLAGS.batch_size)
 
         # Build a Graph that computes predictions from the inference model.
-        logits = bc.inference(images_placeholder, train_placeholder)
+        logits = bc.inference_ref(images_placeholder, train_placeholder, use_bnorm=False)
 
         # Add to the Graph the Ops for loss calculation.
         loss = bc.loss(logits, labels_placeholder)
@@ -149,6 +147,7 @@ def run_training():
 
         # Add the Op to compare the logits to the labels during evaluation.
         eval_correct = bc.evaluation(logits, labels_placeholder)
+        tp_value_total = 0
 
         # Build the summary Tensor based on the TF collection of Summaries.
         summary = tf.summary.merge_all()
@@ -163,7 +162,7 @@ def run_training():
         sess = tf.Session()
 
         # Instantiate a SummaryWriter to output summaries and the Graph.
-        summary_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train/' + dtstr, sess.graph)
+        summary_writer = tf.summary.FileWriter(FLAGS.log_dir, sess.graph)
 
         # And then after everything is built:
 
@@ -186,15 +185,18 @@ def run_training():
             # inspect the values of your Ops or variables, you may include them
             # in the list passed to sess.run() and the value tensors will be
             # returned in the tuple from the call.
-            _, loss_value = sess.run([train_op, loss],
-                                     feed_dict=feed_dict)
+            _, loss_value, tp_value = sess.run([train_op, loss, eval_correct],
+                                               feed_dict=feed_dict)
 
             duration = time.time() - start_time
+            tp_value_total = tp_value_total + tp_value
 
             # Write the summaries and print an overview fairly often.
             if step % 100 == 0:
                 # Print status to stdout.
-                print('Step %d: loss = %.2f (%.3f sec)' % (step, loss_value, duration))
+                print('Step %d: loss = %.2f, correct = %.2f%% (%.3f sec)' %
+                      (step, loss_value, tp_value_total / FLAGS.batch_size, duration))
+                tp_value_total = 0
                 # Update the events file.
                 summary_str = sess.run(summary, feed_dict=feed_dict)
                 summary_writer.add_summary(summary_str, step)
@@ -202,7 +204,7 @@ def run_training():
 
             # Save a checkpoint and evaluate the model periodically.
             if (step + 1) % 1000 == 0 or (step + 1) == FLAGS.max_steps:
-                checkpoint_file = os.path.join(FLAGS.log_dir + '/train/' + dtstr, sess.graph, 'model.ckpt')
+                checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_file, global_step=step)
                 # Evaluate against the training set.
                 print('Training Data Eval:')
@@ -231,6 +233,7 @@ def run_training():
 
 
 def main(_):
+    FLAGS.log_dir = os.path.join(FLAGS.log_dir, datetime.datetime.now().strftime("%y%m%d_%H%M%S"))
     if tf.gfile.Exists(FLAGS.log_dir):
         tf.gfile.DeleteRecursively(FLAGS.log_dir)
     tf.gfile.MakeDirs(FLAGS.log_dir)
