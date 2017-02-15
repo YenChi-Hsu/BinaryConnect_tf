@@ -117,6 +117,53 @@ def _batch_norm(x, n_out, phase_train):
     return normed
 
 
+def inference_ref2(input, is_train, use_bnorm=False):
+    with tf.name_scope('128C3-128C3-P2'):
+        x = tf.layers.conv2d(inputs=input, filters=128, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.conv2d(inputs=x, filters=128, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
+
+    with tf.name_scope('256C3-256C3-P2'):
+        x = tf.layers.conv2d(inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.conv2d(inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
+
+    with tf.name_scope('512C3-512C3-P2'):
+        x = tf.layers.conv2d(inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.conv2d(inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+                             use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
+
+    with tf.name_scope('1024FC-1024FC-10FC'):
+        x = tf.reshape(x, [x.get_shape()[0].value, -1])
+        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.dense(inputs=x, units=cifar10.NB_CLASSES)
+
+    return x
+
+
 def inference_ref(input, is_train, use_bnorm=False):
     with tf.name_scope('conv1'):
         x = tf.layers.conv2d(inputs=input, filters=32, kernel_size=3, padding="same", activation=tf.nn.relu,
@@ -283,7 +330,6 @@ def loss(logits, labels):
         # cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
         loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
 
-    tf.summary.scalar('loss', loss)
     return loss
 
 
