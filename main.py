@@ -70,7 +70,7 @@ def main(argv=None):
         for epoch in range(FLAGS.max_steps):
             # train epoch
             step = 0
-            while step * batch_size < 50:  # cifar10.train.num_examples:
+            while step * batch_size < cifar10.train.num_examples:
                 global_step += 1
                 batch_x, batch_y = cifar10.train.next_batch(batch_size)
                 # Run optimization op
