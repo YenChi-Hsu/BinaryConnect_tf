@@ -36,6 +36,7 @@ IM_ROWS, IM_COLS = 32, 32
 # The CIFAR10 images are RGB.
 IM_CH = 3
 
+
 class DataSet(object):
     def __init__(self,
                  images,
@@ -142,8 +143,8 @@ def load_data(dst_dir='./dataset'):
     fpath = os.path.join(path, 'test_batch')
     x_test, y_test = load_batch(fpath)
 
-    y_train = np.reshape(y_train, (len(y_train), 1))
-    y_test = np.reshape(y_test, (len(y_test), 1))
+    y_train = np.reshape(y_train, (len(y_train)))
+    y_test = np.reshape(y_test, (len(y_test)))
 
     x_train = x_train.transpose(0, 2, 3, 1)
     x_test = x_test.transpose(0, 2, 3, 1)
@@ -191,11 +192,10 @@ def read_data_sets(dst_dir='./dataset', dtype=dtypes.float32, validation_size=50
     train_images = train_images[:-validation_size]
     train_labels = train_labels[:-validation_size]
 
-    train = DataSet(train_images, train_labels, dtype=dtype, one_hot=True)
+    train = DataSet(train_images, train_labels, dtype=dtype, one_hot=False)
     validation = DataSet(validation_images,
                          validation_labels,
-                         dtype=dtype, one_hot=True)
-    test = DataSet(test_images, test_labels, dtype=dtype, one_hot=True)
+                         dtype=dtype, one_hot=False)
+    test = DataSet(test_images, test_labels, dtype=dtype, one_hot=False)
 
     return base.Datasets(train=train, validation=validation, test=test)
-
