@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import init_ops
+from tensorflow.python.layers.convolutional import _Conv
 import cifar10
 
 FLAGS = tf.app.flags.FLAGS
@@ -383,3 +384,194 @@ def evaluation(logits, labels):
     tp = tf.reduce_sum(tf.cast(correct, tf.int32))
     tf.summary.scalar('true_positive', tp)
     return tp
+
+
+class Conv2D_bin(_Conv):
+    """2D convolution layer (e.g. spatial convolution over images).
+
+    This layer creates a convolution kernel that is convolved
+    (actually cross-correlated) with the layer input to produce a tensor of
+    outputs. If `use_bias` is True (and a `bias_initializer` is provided),
+    a bias vector is created and added to the outputs. Finally, if
+    `activation` is not `None`, it is applied to the outputs as well.
+
+    Arguments:
+      filters: integer, the dimensionality of the output space (i.e. the number
+        output of filters in the convolution).
+      kernel_size: an integer or tuple/list of 2 integers, specifying the
+        width and height of the 2D convolution window.
+        Can be a single integer to specify the same value for
+        all spatial dimensions.
+      strides: an integer or tuple/list of 2 integers,
+        specifying the strides of the convolution along the width and height.
+        Can be a single integer to specify the same value for
+        all spatial dimensions.
+        Specifying any stride value != 1 is incompatible with specifying
+        any `dilation_rate` value != 1.
+      padding: one of `"valid"` or `"same"` (case-insensitive).
+      data_format: A string, one of `channels_last` (default) or `channels_first`.
+        The ordering of the dimensions in the inputs.
+        `channels_last` corresponds to inputs with shape
+        `(batch, width, height, channels)` while `channels_first` corresponds to
+        inputs with shape `(batch, channels, width, height)`.
+      dilation_rate: an integer or tuple/list of 2 integers, specifying
+        the dilation rate to use for dilated convolution.
+        Can be a single integer to specify the same value for
+        all spatial dimensions.
+        Currently, specifying any `dilation_rate` value != 1 is
+        incompatible with specifying any stride value != 1.
+      activation: Activation function. Set it to None to maintain a
+        linear activation.
+      use_bias: Boolean, whether the layer uses a bias.
+      kernel_initializer: An initializer for the convolution kernel.
+      bias_initializer: An initializer for the bias vector. If None, no bias will
+        be applied.
+      kernel_regularizer: Optional regularizer for the convolution kernel.
+      bias_regularizer: Optional regularizer for the bias vector.
+      activity_regularizer: Regularizer function for the output.
+      trainable: Boolean, if `True` also add variables to the graph collection
+        `GraphKeys.TRAINABLE_VARIABLES` (see tf.Variable).
+      name: A string, the name of the layer.
+    """
+
+    def __init__(self, filters,
+                 kernel_size,
+                 strides=(1, 1),
+                 padding='valid',
+                 data_format='channels_last',
+                 dilation_rate=(1, 1),
+                 activation=None,
+                 use_bias=True,
+                 kernel_initializer=None,
+                 bias_initializer=init_ops.zeros_initializer(),
+                 kernel_regularizer=None,
+                 bias_regularizer=None,
+                 activity_regularizer=None,
+                 trainable=True,
+                 name=None,
+                 **kwargs):
+        self.stochastic = kwargs.get('stochastic', False)
+        if 'stochastic' in kwargs.keys():
+            del kwargs['stochastic']
+
+        super(Conv2D_bin, self).__init__(
+            rank=2,
+            filters=filters,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=data_format,
+            dilation_rate=dilation_rate,
+            activation=activation,
+            use_bias=use_bias,
+            kernel_initializer=kernel_initializer,
+            bias_initializer=bias_initializer,
+            kernel_regularizer=kernel_regularizer,
+            bias_regularizer=bias_regularizer,
+            activity_regularizer=activity_regularizer,
+            trainable=trainable,
+            name=name, **kwargs)
+
+    def build(self, input_shape):
+        tmp = super(Conv2D_bin).build(input_shape)
+        self.kernel_b = tf.get_variable('kernel',
+                                        shape=self.kernel.get_shape(),
+                                        initializer=self.kernel_initializer,
+                                        regularizer=self.kernel_regularizer,
+                                        trainable=True,
+                                        dtype=self.dtype)
+        self.kernel.trainble = False
+        return tmp
+
+    def call(self, inputs):
+        return super(Conv2D_bin).call(inputs)
+
+
+def conv2d_bin(inputs,
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               data_format='channels_last',
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer=None,
+               bias_initializer=init_ops.zeros_initializer(),
+               kernel_regularizer=None,
+               bias_regularizer=None,
+               activity_regularizer=None,
+               trainable=True,
+               name=None,
+               reuse=None):
+    """Functional interface for the 2D convolution layer.
+
+    This layer creates a convolution kernel that is convolved
+    (actually cross-correlated) with the layer input to produce a tensor of
+    outputs. If `use_bias` is True (and a `bias_initializer` is provided),
+    a bias vector is created and added to the outputs. Finally, if
+    `activation` is not `None`, it is applied to the outputs as well.
+
+    Arguments:
+      inputs: Tensor input.
+      filters: integer, the dimensionality of the output space (i.e. the number
+        output of filters in the convolution).
+      kernel_size: an integer or tuple/list of 2 integers, specifying the
+        width and height of the 2D convolution window.
+        Can be a single integer to specify the same value for
+        all spatial dimensions.
+      strides: an integer or tuple/list of 2 integers,
+        specifying the strides of the convolution along the width and height.
+        Can be a single integer to specify the same value for
+        all spatial dimensions.
+        Specifying any stride value != 1 is incompatible with specifying
+        any `dilation_rate` value != 1.
+      padding: one of `"valid"` or `"same"` (case-insensitive).
+      data_format: A string, one of `channels_last` (default) or `channels_first`.
+        The ordering of the dimensions in the inputs.
+        `channels_last` corresponds to inputs with shape
+        `(batch, width, height, channels)` while `channels_first` corresponds to
+        inputs with shape `(batch, channels, width, height)`.
+      dilation_rate: an integer or tuple/list of 2 integers, specifying
+        the dilation rate to use for dilated convolution.
+        Can be a single integer to specify the same value for
+        all spatial dimensions.
+        Currently, specifying any `dilation_rate` value != 1 is
+        incompatible with specifying any stride value != 1.
+      activation: Activation function. Set it to None to maintain a
+        linear activation.
+      use_bias: Boolean, whether the layer uses a bias.
+      kernel_initializer: An initializer for the convolution kernel.
+      bias_initializer: An initializer for the bias vector. If None, no bias will
+        be applied.
+      kernel_regularizer: Optional regularizer for the convolution kernel.
+      bias_regularizer: Optional regularizer for the bias vector.
+      activity_regularizer: Regularizer function for the output.
+      trainable: Boolean, if `True` also add variables to the graph collection
+        `GraphKeys.TRAINABLE_VARIABLES` (see tf.Variable).
+      name: A string, the name of the layer.
+      reuse: Boolean, whether to reuse the weights of a previous layer
+        by the same name.
+
+    Returns:
+      Output tensor.
+    """
+    layer = Conv2D_bin(
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        data_format=data_format,
+        dilation_rate=dilation_rate,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+        kernel_regularizer=kernel_regularizer,
+        bias_regularizer=bias_regularizer,
+        activity_regularizer=activity_regularizer,
+        trainable=trainable,
+        name=name,
+        _reuse=reuse,
+        _scope=name)
+    return layer.apply(inputs)
