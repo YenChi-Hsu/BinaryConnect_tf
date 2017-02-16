@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-# from tensorflow.contrib.layers import batch_norm, convolution2d, fully_connected, max_pool2d, flatten
 from tensorflow.python.ops import init_ops
 import cifar10
 

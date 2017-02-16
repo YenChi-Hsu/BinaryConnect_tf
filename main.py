@@ -80,6 +80,7 @@ def fill_feed_dict(data_set, images_pl, labels_pl, train_pl, train_val):
       data_set: The set of images and labels, from input_data.read_data_sets()
       images_pl: The images placeholder, from placeholder_inputs().
       labels_pl: The labels placeholder, from placeholder_inputs().
+      train_pl: The training indicator placeholder, from placeholder_inputs().
 
     Returns:
       feed_dict: The feed dictionary mapping from placeholders to values.
@@ -160,6 +161,7 @@ def run_training():
         # frequency_placeholder = tf.placeholder(tf.float32, shape=())
         # tf.summary.scalar('Execution Time', frequency_placeholder)
         # TODO: support a d separate summary for metadata (e.g. execution time)
+
 
         # Build the summary Tensor based on the TF collection of Summaries.
         summary = tf.summary.merge_all()
