@@ -148,7 +148,7 @@ def run_training():
 
         # Build a Graph that computes predictions from the inference model.
         logits = bc.inference_bin(images_placeholder, train_placeholder,
-                                  stochastic=FLAGS.stochstic,
+                                  stochastic=FLAGS.stochastic,
                                   use_bnorm=True) if FLAGS.binary \
             else bc.inference_ref(images_placeholder, train_placeholder,
                                   use_bnorm=True)

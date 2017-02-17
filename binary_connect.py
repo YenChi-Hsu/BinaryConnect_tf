@@ -1,12 +1,12 @@
 import numpy as np
 import tensorflow as tf
+from tensorflow.python import ops
 from tensorflow.python.ops import init_ops
 from tensorflow.python.layers.convolutional import _Conv
+from tensorflow.python.layers.core import Dense
 import cifar10
 
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_boolean('binary', False, "Enable binary connect")
-tf.app.flags.DEFINE_boolean('stochastic', False, "Use stochastic binarization")
 
 INPUT_SIZE = (32, 32, 3)
 
@@ -16,62 +16,18 @@ def hard_sig(x):
     return x
 
 
-def binarize_deterministic(w):
-    with tf.name_scope('binarize_deterministic'):
-        w = hard_sig(w)
-        wb = tf.round(w)
-        wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
-    return wb
-
-
-def binarize_stochastic(w):
-    with tf.name_scope('binarize_stochastic'):
-        w = hard_sig(w)
-        wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
-        wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
-    return wb
-
-
-def trainable_var(name, shape, initializer=tf.truncated_normal_initializer(stddev=.05), binary=FLAGS.binary):
-    """Helper to create an initialized Variable with or without binarization.
-
-    Note that the Variable is initialized with a truncated normal distribution.
-    A weight decay is added only if one is specified.
-
-    Args:
-      name: name of the variable
-      shape: list of ints
-      initializer: initializer for the variable
-      binary: use binary connect or not
-      stochastic: use stochastic binarization
-
-    Returns:
-      Variable Tensor
-    """
-    if binary:
-        # create a variable and prevent it from being added to the TRAINABLE_VARIABLES collection
-        var_b = tf.get_variable(name + "_b", shape,
-                                initializer=initializer,
-                                trainable=False)
-
-        var_t = tf.get_variable(name + "_t", shape,
-                                initializer=initializer,
-                                trainable=False)
-
-        with tf.control_dependencies([var_t]):
-            if FLAGS.stochastic:
-                var_b.assign(binarize_stochastic(var_t))
-            else:
-                var_b.assign(binarize_deterministic(var_t))
-
-        # add the
-        tf.add_to_collection("BINARY_TRAINABLE", (var_b, var_t))
+def binarize(w, stochastic=False):
+    if stochastic:
+        with tf.name_scope('binarize_deterministic'):
+            w = hard_sig(w)
+            wb = tf.round(w)
+            wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
     else:
-        var_b = tf.get_variable(name, shape,
-                                initializer=initializer,
-                                trainable=True)
-
-    return var_b
+        with tf.name_scope('binarize_stochastic'):
+            w = hard_sig(w)
+            wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
+            wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
+    return wb
 
 
 def variable_summaries(var, name=None):
@@ -126,29 +82,34 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=128, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=128, kernel_size=3, padding="same",
+                       activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('256C3-256C3-P2'):
-        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same",
+                       activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same",
+                       activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('512C3-512C3-P2'):
-        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same",
+                       activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same",
+                       activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
@@ -157,13 +118,13 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
     with tf.name_scope('1024FC-1024FC-10FC'):
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
         # TODO: add binary connect for dense layers
-        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = dense_bin(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = dense_bin(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = tf.layers.dense(inputs=x, units=cifar10.NB_CLASSES)
+        x = dense_bin(inputs=x, units=cifar10.NB_CLASSES)
 
     return x
 
@@ -416,9 +377,9 @@ def training(loss, learning_rate):
     # Replace binary variables with their continuous pairs
     grads_and_vars_for_update = [(g, v.grad_update_var) if hasattr(v, 'grad_update_var') else (g, v) for g, v in
                                  grads_and_vars]
-	# TODO: clip updates
     # Apply gradient updates
     train_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars_for_update, global_step=global_step)
+
     return train_op
 
 
@@ -446,53 +407,6 @@ def evaluation(logits, labels):
 
 
 class Conv2D_bin(_Conv):
-    """2D convolution layer (e.g. spatial convolution over images).
-
-    This layer creates a convolution kernel that is convolved
-    (actually cross-correlated) with the layer input to produce a tensor of
-    outputs. If `use_bias` is True (and a `bias_initializer` is provided),
-    a bias vector is created and added to the outputs. Finally, if
-    `activation` is not `None`, it is applied to the outputs as well.
-
-    Arguments:
-      filters: integer, the dimensionality of the output space (i.e. the number
-        output of filters in the convolution).
-      kernel_size: an integer or tuple/list of 2 integers, specifying the
-        width and height of the 2D convolution window.
-        Can be a single integer to specify the same value for
-        all spatial dimensions.
-      strides: an integer or tuple/list of 2 integers,
-        specifying the strides of the convolution along the width and height.
-        Can be a single integer to specify the same value for
-        all spatial dimensions.
-        Specifying any stride value != 1 is incompatible with specifying
-        any `dilation_rate` value != 1.
-      padding: one of `"valid"` or `"same"` (case-insensitive).
-      data_format: A string, one of `channels_last` (default) or `channels_first`.
-        The ordering of the dimensions in the inputs.
-        `channels_last` corresponds to inputs with shape
-        `(batch, width, height, channels)` while `channels_first` corresponds to
-        inputs with shape `(batch, channels, width, height)`.
-      dilation_rate: an integer or tuple/list of 2 integers, specifying
-        the dilation rate to use for dilated convolution.
-        Can be a single integer to specify the same value for
-        all spatial dimensions.
-        Currently, specifying any `dilation_rate` value != 1 is
-        incompatible with specifying any stride value != 1.
-      activation: Activation function. Set it to None to maintain a
-        linear activation.
-      use_bias: Boolean, whether the layer uses a bias.
-      kernel_initializer: An initializer for the convolution kernel.
-      bias_initializer: An initializer for the bias vector. If None, no bias will
-        be applied.
-      kernel_regularizer: Optional regularizer for the convolution kernel.
-      bias_regularizer: Optional regularizer for the bias vector.
-      activity_regularizer: Regularizer function for the output.
-      trainable: Boolean, if `True` also add variables to the graph collection
-        `GraphKeys.TRAINABLE_VARIABLES` (see tf.Variable).
-      name: A string, the name of the layer.
-    """
-
     def __init__(self, filters,
                  kernel_size,
                  strides=(1, 1),
@@ -545,8 +459,8 @@ class Conv2D_bin(_Conv):
         return tmp
 
     def call(self, inputs):
-        assign_op = tf.assign(self.kernel, binarize_deterministic(self.kernel_t))
-        with tf.control_dependencies([assign_op]):
+        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic))
+        with tf.control_dependencies([assign_t]):
             return super(Conv2D_bin, self).call(inputs)
 
 
@@ -568,58 +482,6 @@ def conv2d_bin(inputs,
                trainable=True,
                name=None,
                reuse=None):
-    """Functional interface for the 2D convolution layer.
-
-    This layer creates a convolution kernel that is convolved
-    (actually cross-correlated) with the layer input to produce a tensor of
-    outputs. If `use_bias` is True (and a `bias_initializer` is provided),
-    a bias vector is created and added to the outputs. Finally, if
-    `activation` is not `None`, it is applied to the outputs as well.
-
-    Arguments:
-      inputs: Tensor input.
-      filters: integer, the dimensionality of the output space (i.e. the number
-        output of filters in the convolution).
-      kernel_size: an integer or tuple/list of 2 integers, specifying the
-        width and height of the 2D convolution window.
-        Can be a single integer to specify the same value for
-        all spatial dimensions.
-      strides: an integer or tuple/list of 2 integers,
-        specifying the strides of the convolution along the width and height.
-        Can be a single integer to specify the same value for
-        all spatial dimensions.
-        Specifying any stride value != 1 is incompatible with specifying
-        any `dilation_rate` value != 1.
-      padding: one of `"valid"` or `"same"` (case-insensitive).
-      data_format: A string, one of `channels_last` (default) or `channels_first`.
-        The ordering of the dimensions in the inputs.
-        `channels_last` corresponds to inputs with shape
-        `(batch, width, height, channels)` while `channels_first` corresponds to
-        inputs with shape `(batch, channels, width, height)`.
-      dilation_rate: an integer or tuple/list of 2 integers, specifying
-        the dilation rate to use for dilated convolution.
-        Can be a single integer to specify the same value for
-        all spatial dimensions.
-        Currently, specifying any `dilation_rate` value != 1 is
-        incompatible with specifying any stride value != 1.
-      activation: Activation function. Set it to None to maintain a
-        linear activation.
-      use_bias: Boolean, whether the layer uses a bias.
-      kernel_initializer: An initializer for the convolution kernel.
-      bias_initializer: An initializer for the bias vector. If None, no bias will
-        be applied.
-      kernel_regularizer: Optional regularizer for the convolution kernel.
-      bias_regularizer: Optional regularizer for the bias vector.
-      activity_regularizer: Regularizer function for the output.
-      trainable: Boolean, if `True` also add variables to the graph collection
-        `GraphKeys.TRAINABLE_VARIABLES` (see tf.Variable).
-      name: A string, the name of the layer.
-      reuse: Boolean, whether to reuse the weights of a previous layer
-        by the same name.
-
-    Returns:
-      Output tensor.
-    """
     layer = Conv2D_bin(
         filters=filters,
         kernel_size=kernel_size,
@@ -639,4 +501,65 @@ def conv2d_bin(inputs,
         _reuse=reuse,
         _scope=name,
         stochastic=stochastic)
+    return layer.apply(inputs)
+
+
+class Dense_bin(Dense):
+    def __init__(self, units, activation=None, use_bias=True, kernel_initializer=None,
+                 bias_initializer=init_ops.zeros_initializer(), kernel_regularizer=None, bias_regularizer=None,
+                 activity_regularizer=None, trainable=True, name=None, **kwargs):
+        self.stochastic = kwargs.get('stochastic', False)
+        if 'stochastic' in kwargs.keys():
+            del kwargs['stochastic']
+
+        super(Dense_bin, self).__init__(units, activation, use_bias, kernel_initializer, bias_initializer,
+                                        kernel_regularizer,
+                                        bias_regularizer, activity_regularizer, trainable, name, **kwargs)
+
+    def build(self, input_shape):
+        tmp = super(Dense_bin, self).build(input_shape)
+        self.kernel_t = tf.get_variable('kernel_t',
+                                        shape=self.kernel.get_shape(),
+                                        initializer=self.kernel_initializer,
+                                        regularizer=self.kernel_regularizer,
+                                        trainable=False,
+                                        dtype=self.dtype)
+        self.kernel.grad_update_var = self.kernel_t
+        variable_summaries(self.kernel, 'kernel')
+        variable_summaries(self.kernel_t, 'kernel_t')
+        return tmp
+
+    def call(self, inputs):
+        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic))
+        with tf.control_dependencies([assign_t]):
+            return super(Dense_bin, self).call(inputs)
+
+
+def dense_bin(
+        inputs, units,
+        activation=None,
+        use_bias=True,
+        stochastic=False,
+        kernel_initializer=None,
+        bias_initializer=init_ops.zeros_initializer(),
+        kernel_regularizer=None,
+        bias_regularizer=None,
+        activity_regularizer=None,
+        trainable=True,
+        name=None,
+        reuse=None):
+    layer = Dense_bin(units,
+                      activation=activation,
+                      use_bias=use_bias,
+                      stochastic=stochastic,
+                      kernel_initializer=kernel_initializer,
+                      bias_initializer=bias_initializer,
+                      kernel_regularizer=kernel_regularizer,
+                      bias_regularizer=bias_regularizer,
+                      activity_regularizer=activity_regularizer,
+                      trainable=trainable,
+                      name=name,
+                      dtype=inputs.dtype.base_dtype,
+                      _scope=name,
+                      _reuse=reuse)
     return layer.apply(inputs)
