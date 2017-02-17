@@ -37,7 +37,7 @@ tf.app.flags.DEFINE_integer('max_steps', 500000, 'Max number of epochs.')
 tf.app.flags.DEFINE_integer('batch_size', 100, 'Batch size.  Must divide evenly into the dataset sizes.')
 tf.app.flags.DEFINE_integer('learning_rate', 0.01, 'Initial learning rate.')
 tf.app.flags.DEFINE_string('log_dir', '.\\log', 'Directory to put the log data.')
-tf.app.flags.DEFINE_string('run_name', 'bnorm_bin', 'Name for the run (for logging).')
+tf.app.flags.DEFINE_string('run_name', '', 'Name for the run (for logging).')
 tf.app.flags.DEFINE_boolean('binary', True, 'Toggle binary-connect usage.')
 tf.app.flags.DEFINE_boolean('stochastic', False, 'Switch between stochastic and deteministic binary-connect.')
 
@@ -119,20 +119,20 @@ def do_eval(sess,
     true_count = 0  # Counts the number of correct predictions.
     steps_per_epoch = data_set.num_examples // FLAGS.batch_size
     num_examples = steps_per_epoch * FLAGS.batch_size
-    summary = []
+    # summary = []
     for step in xrange(steps_per_epoch):
         feed_dict = fill_feed_dict(data_set,
                                    images_placeholder,
                                    labels_placeholder,
                                    train_placeholder, False)
-        summ_, tp_ = sess.run([merged_summaries, eval_correct], feed_dict=feed_dict)
+        tp_ = sess.run(eval_correct, feed_dict=feed_dict)
         true_count += tp_
-        summary.append(summ_)
+        # summary.append(summ_)
 
     precision = float(true_count) / num_examples
     print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
           (num_examples, true_count, precision))
-    return summary, precision
+    return precision
 
 
 def run_training():
@@ -177,6 +177,11 @@ def run_training():
 
         # Create a saver for writing training checkpoints.
         saver = tf.train.Saver()
+
+        # Create a logger to the validation accuracy
+        val_acc_pl = tf.placeholder(tf.float32, shape=())
+        summary_val_acc = tf.summary.scalar(name='validation_acc', tensor=val_acc_pl, collections=['validation'])
+        summary_val = tf.summary.merge([summary_val_acc])
 
         # Create a session for running Ops on the Graph.
         sess = tf.Session()
@@ -234,24 +239,25 @@ def run_training():
                 checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_file, global_step=step)
                 # Evaluate against the training set.
-                print('Training Data Eval:')
-                do_eval(sess,
-                        eval_correct,
-                        images_placeholder,
-                        labels_placeholder,
-                        train_placeholder,
-                        data_sets.train, summary)
+                # print('Training Data Eval:')
+                # do_eval(sess,
+                #         eval_correct,
+                #         images_placeholder,
+                #         labels_placeholder,
+                #         train_placeholder,
+                #         data_sets.train, summary)
                 # Evaluate against the validation set.
                 print('Validation Data Eval:')
-                summary_str, _ = do_eval(sess,
-                                         eval_correct,
-                                         images_placeholder,
-                                         labels_placeholder,
-                                         train_placeholder,
-                                         data_sets.validation, summary)
+                accuracy_val = do_eval(sess,
+                                       eval_correct,
+                                       images_placeholder,
+                                       labels_placeholder,
+                                       train_placeholder,
+                                       data_sets.validation, summary)
                 # TODO: find a way to collect summaries for validation
-                # summary_writer_val.add_summary(summary_str, step)
-                # summary_writer_val.flush()
+                summary_str = sess.run(summary_val, feed_dict={val_acc_pl: accuracy_val})
+                summary_writer_val.add_summary(summary_str, step)
+                summary_writer_val.flush()
 
                 # Evaluate against the test set.
                 print('Test Data Eval:')
@@ -264,7 +270,12 @@ def run_training():
 
 
 def main(_):
-    FLAGS.run_name = FLAGS.run_name + datetime.datetime.now().strftime("_%y%m%d_%H%M%S")
+    FLAGS.run_name = \
+        datetime.datetime.now().strftime("%y%m%d_%H%M%S") + \
+        FLAGS.run_name + \
+        'BIN_' + str(FLAGS.binary) + \
+        'STOCH_' + str(FLAGS.stochastic)
+
     FLAGS.log_dir = os.path.join(FLAGS.log_dir, FLAGS.run_name)
     if tf.gfile.Exists(FLAGS.log_dir):
         tf.gfile.DeleteRecursively(FLAGS.log_dir)

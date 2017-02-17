@@ -20,13 +20,11 @@ def binarize(w, stochastic=False):
     if stochastic:
         with tf.name_scope('binarize_stochastic'):
             w = hard_sig(w)
-            wb = tf.round(w)
+            wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
             wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
     else:
         with tf.name_scope('binarize_deterministic'):
-            w = hard_sig(w)
-            wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
-            wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
+            wb = tf.where(tf.greater_equal(w, 0.), tf.ones_like(w), -tf.ones_like(w))
     return wb
 
 
@@ -41,38 +39,6 @@ def variable_summaries(var, name=None):
         tf.summary.scalar('max', tf.reduce_max(var))
         tf.summary.scalar('min', tf.reduce_min(var))
         tf.summary.histogram('histogram', var)
-
-
-def _batch_norm(x, n_out, phase_train):
-    """
-    Batch normalization on convolutional maps.
-    Ref.: https://gist.github.com/tomokishii/0ce3bdac1588b5cca9fa5fbdf6e1c412
-    Args:
-        x:           Tensor, 4D BHWD input maps
-        n_out:       integer, depth of input maps
-        phase_train: boolean tf.Varialbe, true indicates training phase
-        scope:       string, variable scope
-    Return:
-        normed:      batch-normalized maps
-    """
-    with tf.variable_scope('bn'):
-        beta = tf.Variable(tf.constant(0.0, shape=[n_out]),
-                           name='beta', trainable=True)
-        gamma = tf.Variable(tf.constant(1.0, shape=[n_out]),
-                            name='gamma', trainable=True)
-        batch_mean, batch_var = tf.nn.moments(x, [0, 1, 2], name='moments')
-        ema = tf.train.ExponentialMovingAverage(decay=0.5)
-
-        def mean_var_with_update():
-            ema_apply_op = ema.apply([batch_mean, batch_var])
-            with tf.control_dependencies([ema_apply_op]):
-                return tf.identity(batch_mean), tf.identity(batch_var)
-
-        mean, var = tf.cond(phase_train,
-                            mean_var_with_update,
-                            lambda: (ema.average(batch_mean), ema.average(batch_var)))
-        normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
-    return normed
 
 
 def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
@@ -116,7 +82,7 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('1024FC-1024FC-10FC'):
-        fun = tf.layers.dense if True else dense_bin
+        fun = tf.layers.dense if False else dense_bin
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
         x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
@@ -164,14 +130,15 @@ def inference_ref(input, is_train, use_bnorm=False):
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('1024FC-1024FC-10FC'):
+        fun = tf.layers.dense if True else dense_bin
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
-        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = tf.layers.dense(inputs=x, units=cifar10.NB_CLASSES)
+        x = fun(inputs=x, units=cifar10.NB_CLASSES)
 
     return x
 
@@ -227,19 +194,19 @@ def loss(logits, labels):
     if update_ops:
         updates = tf.group(*update_ops)
         with tf.control_dependencies([updates]):
-            cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-                logits=logits, labels=labels, name='xentropy')
-            # labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
-            # cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
-            loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
+            # cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            #     logits=logits, labels=labels, name='xentropy')
+            labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
+            cross_entropy = tf.square(tf.losses.hinge_loss(logits=logits, labels=labels_oh))
+            loss_t = tf.reduce_mean(cross_entropy, name='xentropy_mean')
     else:
-        cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=logits, labels=labels, name='xentropy')
-        # labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
-        # cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
-        loss = tf.reduce_mean(cross_entropy, name='xentropy_mean')
+        # cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        #     logits=logits, labels=labels, name='xentropy')
+        labels_oh = tf.one_hot(labels, cifar10.NB_CLASSES)
+        cross_entropy = tf.losses.hinge_loss(logits=logits, labels=labels_oh)
+        loss_t = tf.reduce_mean(cross_entropy, name='xentropy_mean')
 
-    return loss
+    return loss_t
 
 
 def training(loss, learning_rate):
@@ -428,6 +395,7 @@ class Dense_bin(Dense):
 
     def call(self, inputs):
         assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic))
+        # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
         with tf.control_dependencies([assign_t]):
             return super(Dense_bin, self).call(inputs)
 
