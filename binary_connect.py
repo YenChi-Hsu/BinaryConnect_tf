@@ -18,6 +18,7 @@ def hard_sig(x):
 
 def binarize(w, stochastic=False):
     if stochastic:
+        # TODO: implement stochastic binarization
         with tf.name_scope('binarize_deterministic'):
             w = hard_sig(w)
             wb = tf.round(w)
@@ -117,7 +118,6 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
 
     with tf.name_scope('1024FC-1024FC-10FC'):
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
-        # TODO: add binary connect for dense layers
         x = dense_bin(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
