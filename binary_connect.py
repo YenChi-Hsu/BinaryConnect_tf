@@ -17,16 +17,18 @@ def hard_sig(x):
 
 
 def binarize_deterministic(w):
-    w = hard_sig(w)
-    wb = tf.round(w)
-    wb = tf.select(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
+    with tf.name_scope('binarize_deterministic'):
+        w = hard_sig(w)
+        wb = tf.round(w)
+        wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
     return wb
 
 
 def binarize_stochastic(w):
-    w = hard_sig(w)
-    wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
-    wb = tf.select(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
+    with tf.name_scope('binarize_stochastic'):
+        w = hard_sig(w)
+        wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
+        wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
     return wb
 
 
@@ -72,9 +74,9 @@ def trainable_var(name, shape, initializer=tf.truncated_normal_initializer(stdde
     return var_b
 
 
-def variable_summaries(var):
+def variable_summaries(var, name=None):
     """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
-    with tf.name_scope('summaries'):
+    with tf.name_scope('summaries_' + name):
         mean = tf.reduce_mean(var)
         tf.summary.scalar('mean', mean)
         with tf.name_scope('stddev'):
@@ -115,6 +117,54 @@ def _batch_norm(x, n_out, phase_train):
                             lambda: (ema.average(batch_mean), ema.average(batch_var)))
         normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
     return normed
+
+
+def inference_bin(input, is_train, use_bnorm=False):
+    with tf.name_scope('128C3-128C3-P2'):
+        x = conv2d_bin(stochastic=False, inputs=input, filters=128, kernel_size=3, padding="same",
+                       activation=tf.nn.relu,
+                       use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = conv2d_bin(stochastic=False, inputs=x, filters=128, kernel_size=3, padding="same", activation=tf.nn.relu,
+                       use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
+
+    with tf.name_scope('256C3-256C3-P2'):
+        x = conv2d_bin(stochastic=False, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+                       use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = conv2d_bin(stochastic=False, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+                       use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
+
+    with tf.name_scope('512C3-512C3-P2'):
+        x = conv2d_bin(stochastic=False, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+                       use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = conv2d_bin(stochastic=False, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+                       use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
+
+    with tf.name_scope('1024FC-1024FC-10FC'):
+        x = tf.reshape(x, [x.get_shape()[0].value, -1])
+        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
+        x = tf.layers.dense(inputs=x, units=cifar10.NB_CLASSES)
+
+    return x
 
 
 def inference_ref2(input, is_train, use_bnorm=False):
@@ -362,9 +412,12 @@ def training(loss, learning_rate):
     # train_op = optimizer.minimize(loss, global_step=global_step)
     # Use the optimizer to compute gradients
     grads_and_vars = optimizer.compute_gradients(loss, var_list=tf.trainable_variables())
-    # vars_with_grad = [v for g, v in grads_and_vars if g is not None]
+    # Replace binary variables with their continuous pairs
+    grads_and_vars_for_update = [(g, v.grad_update_var) if hasattr(v, 'grad_update_var') else (g, v) for g, v in
+                                 grads_and_vars]
+	# TODO: clip updates
     # Apply gradient updates
-    train_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars, global_step=global_step)
+    train_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars_for_update, global_step=global_step)
     return train_op
 
 
@@ -478,18 +531,22 @@ class Conv2D_bin(_Conv):
             name=name, **kwargs)
 
     def build(self, input_shape):
-        tmp = super(Conv2D_bin).build(input_shape)
-        self.kernel_b = tf.get_variable('kernel',
+        tmp = super(Conv2D_bin, self).build(input_shape)
+        self.kernel_t = tf.get_variable('kernel_t',
                                         shape=self.kernel.get_shape(),
                                         initializer=self.kernel_initializer,
                                         regularizer=self.kernel_regularizer,
-                                        trainable=True,
+                                        trainable=False,
                                         dtype=self.dtype)
-        self.kernel.trainble = False
+        self.kernel.grad_update_var = self.kernel_t
+        variable_summaries(self.kernel, 'kernel')
+        variable_summaries(self.kernel_t, 'kernel_t')
         return tmp
 
     def call(self, inputs):
-        return super(Conv2D_bin).call(inputs)
+        assign_op = tf.assign(self.kernel, binarize_deterministic(self.kernel_t))
+        with tf.control_dependencies([assign_op]):
+            return super(Conv2D_bin, self).call(inputs)
 
 
 def conv2d_bin(inputs,
@@ -497,6 +554,7 @@ def conv2d_bin(inputs,
                kernel_size,
                strides=(1, 1),
                padding='valid',
+               stochastic=False,
                data_format='channels_last',
                dilation_rate=(1, 1),
                activation=None,
@@ -578,5 +636,6 @@ def conv2d_bin(inputs,
         trainable=trainable,
         name=name,
         _reuse=reuse,
-        _scope=name)
+        _scope=name,
+        stochastic=stochastic)
     return layer.apply(inputs)

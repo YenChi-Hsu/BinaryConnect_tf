@@ -37,7 +37,7 @@ tf.app.flags.DEFINE_integer('max_steps', 500000, 'Max number of epochs.')
 tf.app.flags.DEFINE_integer('batch_size', 100, 'Batch size.  Must divide evenly into the dataset sizes.')
 tf.app.flags.DEFINE_integer('learning_rate', 0.01, 'Initial learning rate.')
 tf.app.flags.DEFINE_string('log_dir', '.\\log', 'Directory to put the log data.')
-tf.app.flags.DEFINE_string('run_name', '', 'Name for the run (for logging).')
+tf.app.flags.DEFINE_string('run_name', 'bnorm_bin', 'Name for the run (for logging).')
 
 display_step = 20
 data_augmentation = False
@@ -145,7 +145,7 @@ def run_training():
         images_placeholder, labels_placeholder, train_placeholder = placeholder_inputs(FLAGS.batch_size)
 
         # Build a Graph that computes predictions from the inference model.
-        logits = bc.inference_ref2(images_placeholder, train_placeholder, use_bnorm=True)
+        logits = bc.inference_bin(images_placeholder, train_placeholder, use_bnorm=True)
 
         # Add to the Graph the Ops for loss calculation.
         loss = bc.loss(logits, labels_placeholder)
@@ -258,8 +258,7 @@ def run_training():
 
 
 def main(_):
-    if not FLAGS.run_name:
-        FLAGS.run_name = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+    FLAGS.run_name = FLAGS.run_name + datetime.datetime.now().strftime("_%y%m%d_%H%M%S")
     FLAGS.log_dir = os.path.join(FLAGS.log_dir, FLAGS.run_name)
     if tf.gfile.Exists(FLAGS.log_dir):
         tf.gfile.DeleteRecursively(FLAGS.log_dir)
