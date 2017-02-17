@@ -38,6 +38,8 @@ tf.app.flags.DEFINE_integer('batch_size', 100, 'Batch size.  Must divide evenly 
 tf.app.flags.DEFINE_integer('learning_rate', 0.01, 'Initial learning rate.')
 tf.app.flags.DEFINE_string('log_dir', '.\\log', 'Directory to put the log data.')
 tf.app.flags.DEFINE_string('run_name', 'bnorm_bin', 'Name for the run (for logging).')
+tf.app.flags.DEFINE_boolean('binary', True, 'Toggle binary-connect usage.')
+tf.app.flags.DEFINE_boolean('stochastic', False, 'Switch between stochastic and deteministic binary-connect.')
 
 display_step = 20
 data_augmentation = False
@@ -145,7 +147,11 @@ def run_training():
         images_placeholder, labels_placeholder, train_placeholder = placeholder_inputs(FLAGS.batch_size)
 
         # Build a Graph that computes predictions from the inference model.
-        logits = bc.inference_bin(images_placeholder, train_placeholder, use_bnorm=True)
+        logits = bc.inference_bin(images_placeholder, train_placeholder,
+                                  stochastic=FLAGS.stochstic,
+                                  use_bnorm=True) if FLAGS.binary \
+            else bc.inference_ref(images_placeholder, train_placeholder,
+                                  use_bnorm=True)
 
         # Add to the Graph the Ops for loss calculation.
         loss = bc.loss(logits, labels_placeholder)

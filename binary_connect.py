@@ -119,36 +119,36 @@ def _batch_norm(x, n_out, phase_train):
     return normed
 
 
-def inference_bin(input, is_train, use_bnorm=False):
+def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
     with tf.name_scope('128C3-128C3-P2'):
-        x = conv2d_bin(stochastic=False, inputs=input, filters=128, kernel_size=3, padding="same",
+        x = conv2d_bin(stochastic=stochastic, inputs=input, filters=128, kernel_size=3, padding="same",
                        activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = conv2d_bin(stochastic=False, inputs=x, filters=128, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=128, kernel_size=3, padding="same", activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('256C3-256C3-P2'):
-        x = conv2d_bin(stochastic=False, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = conv2d_bin(stochastic=False, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same", activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('512C3-512C3-P2'):
-        x = conv2d_bin(stochastic=False, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = conv2d_bin(stochastic=False, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
+        x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same", activation=tf.nn.relu,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
@@ -156,6 +156,7 @@ def inference_bin(input, is_train, use_bnorm=False):
 
     with tf.name_scope('1024FC-1024FC-10FC'):
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
+        # TODO: add binary connect for dense layers
         x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
@@ -167,7 +168,7 @@ def inference_bin(input, is_train, use_bnorm=False):
     return x
 
 
-def inference_ref2(input, is_train, use_bnorm=False):
+def inference_ref(input, is_train, use_bnorm=False):
     with tf.name_scope('128C3-128C3-P2'):
         x = tf.layers.conv2d(inputs=input, filters=128, kernel_size=3, padding="same", activation=tf.nn.relu,
                              use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
@@ -214,7 +215,7 @@ def inference_ref2(input, is_train, use_bnorm=False):
     return x
 
 
-def inference_ref(input, is_train, use_bnorm=False):
+def inference_ref2(input, is_train, use_bnorm=False):
     with tf.name_scope('conv1'):
         x = tf.layers.conv2d(inputs=input, filters=32, kernel_size=3, padding="same", activation=tf.nn.relu,
                              use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
