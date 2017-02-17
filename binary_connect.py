@@ -18,13 +18,12 @@ def hard_sig(x):
 
 def binarize(w, stochastic=False):
     if stochastic:
-        # TODO: implement stochastic binarization
-        with tf.name_scope('binarize_deterministic'):
+        with tf.name_scope('binarize_stochastic'):
             w = hard_sig(w)
             wb = tf.round(w)
             wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
     else:
-        with tf.name_scope('binarize_stochastic'):
+        with tf.name_scope('binarize_deterministic'):
             w = hard_sig(w)
             wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
             wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
@@ -117,14 +116,15 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('1024FC-1024FC-10FC'):
+        fun = tf.layers.dense if True else dense_bin
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
-        x = dense_bin(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = dense_bin(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = dense_bin(inputs=x, units=cifar10.NB_CLASSES)
+        x = fun(inputs=x, units=cifar10.NB_CLASSES)
 
     return x
 
@@ -210,109 +210,6 @@ def inference_ref2(input, is_train, use_bnorm=False):
     return x
 
 
-def inference(input, is_train):
-    """Build the MNIST model up to where it may be used for inference.
-
-    Args:
-      input: Images placeholder, from inputs().
-      is_train: Training mode indicator placeholder.
-
-    Returns:
-      output_tensor: Output tensor with the computed logits.
-    """
-
-    # helper functions
-    def conv2d_bnorm(input_tensor, kernel_size, input_dim, output_dim, layer_name, act=True, pool=False):
-        """Reusable code for making a conv-bnorm-act neural net block.
-        """
-        # Adding a name scope ensures logical grouping of the layers in the graph.
-        with tf.name_scope(layer_name) as layer_scope:
-            # This Variable will hold the state of the weights for the layer
-            with tf.variable_scope('weights') as var_scope:
-                # kernel = tf.cond(is_train,
-                #                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                #                                        kernel_size + [input_dim, output_dim]),
-                #                  lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                #                                        kernel_size + [input_dim, output_dim], binary=False))
-                kernel = trainable_var(layer_scope + '_' + var_scope.name,
-                                       kernel_size + [input_dim, output_dim], binary=False)
-                variable_summaries(kernel)
-
-            output_tensor = tf.nn.conv2d(input_tensor, kernel, [1, 1, 1, 1], padding='SAME')
-
-            if pool:
-                with tf.name_scope('pooling'):
-                    output_tensor = tf.nn.max_pool(output_tensor, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1],
-                                                   padding='SAME', name=layer_scope + 'P2')
-
-            with tf.name_scope('batch_norm'):
-                # output_tensor = _batch_norm(output_tensor, output_dim, is_train)
-                output_tensor = batch_norm(output_tensor, is_training=is_train)
-
-            if act:
-                with tf.name_scope('activation'):
-                    output_tensor = tf.nn.relu(output_tensor, name='activation')
-                    tf.summary.histogram('activations', output_tensor)
-
-            return output_tensor
-
-    def dense_bnorm(input_tensor, input_dim, output_dim, layer_name, act=True):
-        """Reusable code for making a dense-bnorm-act neural net block.
-
-        It does a matrix multiply, bias add, and then uses relu to nonlinearize.
-        It also sets up name scoping so that the resultant graph is easy to read,
-        and adds a number of summary ops.
-        """
-        # Adding a name scope ensures logical grouping of the layers in the graph.
-        with tf.name_scope(layer_name) as layer_scope:
-            # This Variable will hold the state of the weights for the layer
-            with tf.variable_scope('weights') as var_scope:
-                # weights = tf.cond(is_train,
-                #                   lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                #                                         [input_dim, output_dim], binary=True),
-                #                   lambda: trainable_var(layer_scope + '_' + var_scope.name,
-                #                                         [input_dim, output_dim], binary=False))
-                weights = trainable_var(layer_scope + '_' + var_scope.name,
-                                        [input_dim, output_dim], binary=False)
-                variable_summaries(weights)
-
-            output_tensor = tf.matmul(input_tensor, weights)
-
-            with tf.name_scope('batch_norm'):
-                # output_tensor = _batch_norm(output_tensor, output_dim, is_train)
-                output_tensor = batch_norm(output_tensor, is_training=is_train)
-
-            if act:
-                with tf.name_scope('activation'):
-                    output_tensor = tf.nn.relu(output_tensor, name='activation')
-                    tf.summary.histogram('activations', output_tensor)
-
-            return output_tensor
-
-    # build model
-
-    # 128C3-128C3-P2
-    x = conv2d_bnorm(input, [3, 3], INPUT_SIZE[-1], 128, '128C3_1')
-    x = conv2d_bnorm(x, [3, 3], 128, 128, '128C3_2', pool=True)
-
-    # 256C3-256C3-P2
-    x = conv2d_bnorm(x, [3, 3], 128, 256, '256C3_1')
-    x = conv2d_bnorm(x, [3, 3], 256, 256, '256C3_2', pool=True)
-
-    # 512C3-512C3-P2
-    x = conv2d_bnorm(x, [3, 3], 256, 512, '512C3_1')
-    x = conv2d_bnorm(x, [3, 3], 512, 512, '512C3_2', pool=True)
-
-    # 1024FC-1024FC-10FC
-    flat_sz = np.prod(x.get_shape().as_list()[1:])
-    x = tf.reshape(x, [-1, flat_sz], name='reshape')
-    x = dense_bnorm(x, flat_sz, 1024, '1024FC_1')
-    x = dense_bnorm(x, 1024, 1024, '1024FC_2')
-    x = dense_bnorm(x, 1024, 10, '10FC', act=False)
-
-    return x
-
-
 def loss(logits, labels):
     """Calculates the loss from the logits and the labels.
 
@@ -365,8 +262,8 @@ def training(loss, learning_rate):
     # Add a scalar summary for the snapshot loss.
     tf.summary.scalar('loss', loss)
     # Create the gradient descent optimizer with the given learning rate.
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    # optimizer = tf.train.AdamOptimizer(learning_rate)
+    # optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    optimizer = tf.train.AdamOptimizer(learning_rate)
     # Create a variable to track the global step.
     global_step = tf.Variable(0, name='global_step', trainable=False)
     # # Use the optimizer to apply the gradients that minimize the loss
