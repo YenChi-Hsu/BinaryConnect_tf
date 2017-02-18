@@ -16,12 +16,14 @@ def hard_sig(x):
     return x
 
 
-def binarize(w, stochastic=False):
+def binarize(w, stochastic=False, is_train=False):
     if stochastic:
         with tf.name_scope('binarize_stochastic'):
-            w = hard_sig(w)
-            wb = tf.to_float(tf.random_uniform(tf.shape(w), 0, 1.) <= w)
-            wb = tf.where(tf.equal(wb, 1.), tf.ones_like(wb), -tf.ones_like(wb))
+            wb = tf.cond(is_train,
+                         lambda: tf.where(
+                             tf.less_equal(tf.random_uniform(tf.shape(w), 0, 1., dtype=tf.float32), hard_sig(w)),
+                             tf.ones_like(w), -tf.ones_like(w)),
+                         lambda: w)
     else:
         with tf.name_scope('binarize_deterministic'):
             wb = tf.where(tf.greater_equal(w, 0.), tf.ones_like(w), -tf.ones_like(w))
@@ -44,12 +46,12 @@ def variable_summaries(var, name=None):
 def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
     with tf.name_scope('128C3-128C3-P2'):
         x = conv2d_bin(stochastic=stochastic, inputs=input, filters=128, kernel_size=3, padding="same",
-                       activation=tf.nn.relu,
+                       activation=tf.nn.relu, is_train=is_train,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = conv2d_bin(stochastic=stochastic, inputs=x, filters=128, kernel_size=3, padding="same",
-                       activation=tf.nn.relu,
+                       activation=tf.nn.relu, is_train=is_train,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
@@ -57,12 +59,12 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
 
     with tf.name_scope('256C3-256C3-P2'):
         x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same",
-                       activation=tf.nn.relu,
+                       activation=tf.nn.relu, is_train=is_train,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = conv2d_bin(stochastic=stochastic, inputs=x, filters=256, kernel_size=3, padding="same",
-                       activation=tf.nn.relu,
+                       activation=tf.nn.relu, is_train=is_train,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
@@ -70,27 +72,28 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
 
     with tf.name_scope('512C3-512C3-P2'):
         x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same",
-                       activation=tf.nn.relu,
+                       activation=tf.nn.relu, is_train=is_train,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = conv2d_bin(stochastic=stochastic, inputs=x, filters=512, kernel_size=3, padding="same",
-                       activation=tf.nn.relu,
+                       activation=tf.nn.relu, is_train=is_train,
                        use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('1024FC-1024FC-10FC'):
-        fun = tf.layers.dense if False else dense_bin
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
-        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = dense_bin(inputs=x, units=1024, stochastic=stochastic, is_train=is_train,
+                      activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = dense_bin(inputs=x, units=1024, stochastic=stochastic, is_train=is_train,
+                      activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = fun(inputs=x, units=cifar10.NB_CLASSES)
+        x = dense_bin(inputs=x, units=cifar10.NB_CLASSES, stochastic=stochastic, is_train=is_train)
 
     return x
 
@@ -228,11 +231,13 @@ def training(loss, learning_rate):
     """
     # Add a scalar summary for the snapshot loss.
     tf.summary.scalar('loss', loss)
-    # Create the gradient descent optimizer with the given learning rate.
-    # optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    optimizer = tf.train.AdamOptimizer(learning_rate)
     # Create a variable to track the global step.
     global_step = tf.Variable(0, name='global_step', trainable=False)
+    # Create the gradient descent optimizer with the given learning rate.
+    # optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    learning_rate = tf.train.exponential_decay(learning_rate, global_step=global_step, decay_steps=500,
+                                               decay_rate=0.9999)
+    optimizer = tf.train.AdamOptimizer(learning_rate)
     # # Use the optimizer to apply the gradients that minimize the loss
     # # (and also increment the global step counter) as a single training step.
     # train_op = optimizer.minimize(loss, global_step=global_step)
@@ -263,11 +268,12 @@ def evaluation(logits, labels):
     # It returns a bool tensor with shape [batch_size] that is true for
     # the examples where the label is in the top k (here k=1)
     # of all logits for that example.
+    # acc, _ = tf.metrics.accuracy(labels, tf.reduce_max(logits, axis=1))
     correct = tf.nn.in_top_k(logits, labels, 1)
     # Return the number of true entries.
-    tp = tf.reduce_sum(tf.cast(correct, tf.int32))
-    tf.summary.scalar('true_positive', tp)
-    return tp
+    acc = tf.reduce_sum(tf.cast(correct, tf.int32))
+    tf.summary.scalar('accuracy', acc)
+    return acc
 
 
 class Conv2D_bin(_Conv):
@@ -288,8 +294,11 @@ class Conv2D_bin(_Conv):
                  name=None,
                  **kwargs):
         self.stochastic = kwargs.get('stochastic', False)
+        self.is_train = kwargs.get('is_train', False)
         if 'stochastic' in kwargs.keys():
             del kwargs['stochastic']
+        if 'is_train' in kwargs.keys():
+            del kwargs['is_train']
 
         super(Conv2D_bin, self).__init__(
             rank=2,
@@ -323,7 +332,11 @@ class Conv2D_bin(_Conv):
         return tmp
 
     def call(self, inputs):
-        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic))
+        # assign_t = tf.cond(self.is_train,
+        #                    lambda: tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic)),
+        #                    lambda: tf.assign(self.kernel, self.kernel_t))
+        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic, is_train=self.is_train))
+        # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
         with tf.control_dependencies([assign_t]):
             return super(Conv2D_bin, self).call(inputs)
 
@@ -334,6 +347,7 @@ def conv2d_bin(inputs,
                strides=(1, 1),
                padding='valid',
                stochastic=False,
+               is_train=False,
                data_format='channels_last',
                dilation_rate=(1, 1),
                activation=None,
@@ -364,7 +378,8 @@ def conv2d_bin(inputs,
         name=name,
         _reuse=reuse,
         _scope=name,
-        stochastic=stochastic)
+        stochastic=stochastic,
+        is_train=is_train)
     return layer.apply(inputs)
 
 
@@ -373,8 +388,11 @@ class Dense_bin(Dense):
                  bias_initializer=init_ops.zeros_initializer(), kernel_regularizer=None, bias_regularizer=None,
                  activity_regularizer=None, trainable=True, name=None, **kwargs):
         self.stochastic = kwargs.get('stochastic', False)
+        self.is_train = kwargs.get('is_train', False)
         if 'stochastic' in kwargs.keys():
             del kwargs['stochastic']
+        if 'is_train' in kwargs.keys():
+            del kwargs['is_train']
 
         super(Dense_bin, self).__init__(units, activation, use_bias, kernel_initializer, bias_initializer,
                                         kernel_regularizer,
@@ -394,7 +412,10 @@ class Dense_bin(Dense):
         return tmp
 
     def call(self, inputs):
-        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic))
+        # assign_t = tf.cond(self.is_train,
+        #                    lambda: tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic)),
+        #                    lambda: tf.assign(self.kernel, self.kernel_t))
+        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic, is_train=self.is_train))
         # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
         with tf.control_dependencies([assign_t]):
             return super(Dense_bin, self).call(inputs)
@@ -405,6 +426,7 @@ def dense_bin(
         activation=None,
         use_bias=True,
         stochastic=False,
+        is_train=False,
         kernel_initializer=None,
         bias_initializer=init_ops.zeros_initializer(),
         kernel_regularizer=None,
@@ -417,6 +439,7 @@ def dense_bin(
                       activation=activation,
                       use_bias=use_bias,
                       stochastic=stochastic,
+                      is_train=is_train,
                       kernel_initializer=kernel_initializer,
                       bias_initializer=bias_initializer,
                       kernel_regularizer=kernel_regularizer,

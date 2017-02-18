@@ -34,12 +34,12 @@ import binary_connect as bc
 # Basic model parameters as external flags.
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_integer('max_steps', 500000, 'Max number of epochs.')
-tf.app.flags.DEFINE_integer('batch_size', 100, 'Batch size.  Must divide evenly into the dataset sizes.')
+tf.app.flags.DEFINE_integer('batch_size', 50, 'Batch size.  Must divide evenly into the dataset sizes.')
 tf.app.flags.DEFINE_integer('learning_rate', 0.01, 'Initial learning rate.')
 tf.app.flags.DEFINE_string('log_dir', '.\\log', 'Directory to put the log data.')
 tf.app.flags.DEFINE_string('run_name', '', 'Name for the run (for logging).')
 tf.app.flags.DEFINE_boolean('binary', True, 'Toggle binary-connect usage.')
-tf.app.flags.DEFINE_boolean('stochastic', False, 'Switch between stochastic and deteministic binary-connect.')
+tf.app.flags.DEFINE_boolean('stochastic', True, 'Switch between stochastic and deteministic binary-connect.')
 
 display_step = 20
 data_augmentation = False
@@ -149,7 +149,8 @@ def run_training():
         # Build a Graph that computes predictions from the inference model.
         logits = bc.inference_bin(images_placeholder, train_placeholder,
                                   stochastic=FLAGS.stochastic,
-                                  use_bnorm=True) if FLAGS.binary \
+                                  use_bnorm=True) \
+            if FLAGS.binary \
             else bc.inference_ref(images_placeholder, train_placeholder,
                                   use_bnorm=True)
 
@@ -160,8 +161,7 @@ def run_training():
         train_op = bc.training(loss, FLAGS.learning_rate)
 
         # Add the Op to compare the logits to the labels during evaluation.
-        eval_correct = bc.evaluation(logits, labels_placeholder)
-        tp_value_total = 0
+        eval_metric = bc.evaluation(logits, labels_placeholder)
 
         # Add a placeholder for logging execution time
         # frequency_placeholder = tf.placeholder(tf.float32, shape=())
@@ -173,7 +173,8 @@ def run_training():
         summary = tf.summary.merge_all()
 
         # Add the variable initializer Op.
-        init = tf.global_variables_initializer()
+        ivars = tf.global_variables() + tf.local_variables()
+        init = tf.variables_initializer(ivars)
 
         # Create a saver for writing training checkpoints.
         saver = tf.train.Saver()
@@ -188,7 +189,7 @@ def run_training():
 
         # Instantiate a SummaryWriter to output summaries and the Graph.
         summary_writer_train = tf.summary.FileWriter(os.path.join(FLAGS.log_dir, 'train'), sess.graph)
-        summary_writer_val = tf.summary.FileWriter(os.path.join(FLAGS.log_dir, 'validation'), sess.graph)
+        summary_writer_val = tf.summary.FileWriter(os.path.join(FLAGS.log_dir, 'val'), sess.graph)
 
         # And then after everything is built:
 
@@ -197,6 +198,7 @@ def run_training():
 
         # Start the training loop.
         duration = 0
+        tp_value_total = 0
         for step in xrange(FLAGS.max_steps):
             start_time = time.time()
 
@@ -212,11 +214,11 @@ def run_training():
             # inspect the values of your Ops or variables, you may include them
             # in the list passed to sess.run() and the value tensors will be
             # returned in the tuple from the call.
-            _, loss_value, tp_value = sess.run([train_op, loss, eval_correct],
-                                               feed_dict=feed_dict)
+            _, loss_value, acc_val = sess.run([train_op, loss, eval_metric],
+                                              feed_dict=feed_dict)
 
             duration += time.time() - start_time
-            tp_value_total += tp_value
+            tp_value_total += acc_val
 
             # Write the summaries and print an overview fairly often.
             if step % 100 == 0:
@@ -235,13 +237,13 @@ def run_training():
                 summary_writer_train.flush()
 
             # Save a checkpoint and evaluate the model periodically.
-            if (step + 1) % 1000 == 0 or (step + 1) == FLAGS.max_steps:
+            if (step + 1) % 500 == 0 or (step + 1) == FLAGS.max_steps:
                 checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_file, global_step=step)
                 # Evaluate against the training set.
                 # print('Training Data Eval:')
                 # do_eval(sess,
-                #         eval_correct,
+                #         eval_metric,
                 #         images_placeholder,
                 #         labels_placeholder,
                 #         train_placeholder,
@@ -249,7 +251,7 @@ def run_training():
                 # Evaluate against the validation set.
                 print('Validation Data Eval:')
                 accuracy_val = do_eval(sess,
-                                       eval_correct,
+                                       eval_metric,
                                        images_placeholder,
                                        labels_placeholder,
                                        train_placeholder,
@@ -262,7 +264,7 @@ def run_training():
                 # Evaluate against the test set.
                 print('Test Data Eval:')
                 do_eval(sess,
-                        eval_correct,
+                        eval_metric,
                         images_placeholder,
                         labels_placeholder,
                         train_placeholder,
