@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.python import ops
 from tensorflow.python.ops import init_ops
 from tensorflow.python.layers.convolutional import _Conv
 from tensorflow.python.layers.core import Dense
@@ -14,6 +13,17 @@ INPUT_SIZE = (32, 32, 3)
 def hard_sig(x):
     x = tf.clip_by_value((x + 1.) / 2., 0, 1)
     return x
+
+
+def log_barrier_regularizer(barrier_val=1, scope=None):
+    def log_barrier(w):
+        with tf.name_scope(scope, 'log_barrier', [w]) as name:
+            # TODO: smooth linear function outside of [-1,1]
+            g = tf.maximum(barrier_val - tf.abs(w), 1e-6)
+            y = -tf.log(g)
+            return tf.reduce_sum(y, name=name)
+
+    return log_barrier
 
 
 def binarize(w, stochastic=False, is_train=False):
@@ -46,8 +56,8 @@ def variable_summaries(var, name=None):
 def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
     with tf.name_scope('128C3-128C3-P2'):
         x = conv2d_bin(stochastic=stochastic, inputs=input, filters=128, kernel_size=3, padding="same",
-                       activation=tf.nn.relu, is_train=is_train,
-                       use_bias=not use_bnorm, kernel_initializer=init_ops.glorot_normal_initializer())
+                       activation=tf.nn.relu, is_train=is_train, use_bias=not use_bnorm,
+                       kernel_initializer=init_ops.glorot_normal_initializer())
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
         x = conv2d_bin(stochastic=stochastic, inputs=x, filters=128, kernel_size=3, padding="same",
@@ -323,7 +333,7 @@ class Conv2D_bin(_Conv):
         self.kernel_t = tf.get_variable('kernel_t',
                                         shape=self.kernel.get_shape(),
                                         initializer=self.kernel_initializer,
-                                        regularizer=self.kernel_regularizer,
+                                        regularizer=log_barrier_regularizer(),
                                         trainable=False,
                                         dtype=self.dtype)
         self.kernel.grad_update_var = self.kernel_t
@@ -403,7 +413,7 @@ class Dense_bin(Dense):
         self.kernel_t = tf.get_variable('kernel_t',
                                         shape=self.kernel.get_shape(),
                                         initializer=self.kernel_initializer,
-                                        regularizer=self.kernel_regularizer,
+                                        regularizer=log_barrier_regularizer(),
                                         trainable=False,
                                         dtype=self.dtype)
         self.kernel.grad_update_var = self.kernel_t
