@@ -15,17 +15,6 @@ def hard_sig(x):
     return x
 
 
-def log_barrier_regularizer(barrier_val=1, scope=None):
-    def log_barrier(w):
-        with tf.name_scope(scope, 'log_barrier', [w]) as name:
-            # TODO: smooth linear function outside of [-1,1]
-            g = tf.maximum(barrier_val - tf.abs(w), 1e-6)
-            y = -tf.log(g)
-            return tf.reduce_sum(y, name=name)
-
-    return log_barrier
-
-
 def binarize(w, stochastic=False, is_train=False):
     if stochastic:
         with tf.name_scope('binarize_stochastic'):
@@ -103,8 +92,10 @@ def inference_bin(input, is_train, stochastic=False, use_bnorm=False):
                       activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = dense_bin(inputs=x, units=cifar10.NB_CLASSES, stochastic=stochastic, is_train=is_train)
-
+        x = dense_bin(inputs=x, units=cifar10.NB_CLASSES, stochastic=stochastic, is_train=is_train,
+                      use_bias=not use_bnorm)
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
     return x
 
 
@@ -254,8 +245,13 @@ def training(loss, learning_rate):
     # Use the optimizer to compute gradients
     grads_and_vars = optimizer.compute_gradients(loss, var_list=tf.trainable_variables())
     # Replace binary variables with their continuous pairs
-    grads_and_vars_for_update = [(g, v.grad_update_var) if hasattr(v, 'grad_update_var') else (g, v) for g, v in
-                                 grads_and_vars]
+    # grads_and_vars_for_update = [
+    #     (g, tf.clip_by_value(v.grad_update_var, -1, 1)) if hasattr(v, 'grad_update_var')
+    #     else (g, v)
+    #     for g, v in grads_and_vars]
+    grads_and_vars_for_update = [
+        (g, v.grad_update_var) if hasattr(v, 'grad_update_var')
+        else (g, v) for g, v in grads_and_vars]
     # Apply gradient updates
     train_op = optimizer.apply_gradients(grads_and_vars=grads_and_vars_for_update, global_step=global_step)
 
@@ -333,7 +329,7 @@ class Conv2D_bin(_Conv):
         self.kernel_t = tf.get_variable('kernel_t',
                                         shape=self.kernel.get_shape(),
                                         initializer=self.kernel_initializer,
-                                        regularizer=log_barrier_regularizer(),
+                                        regularizer=self.kernel_regularizer,
                                         trainable=False,
                                         dtype=self.dtype)
         self.kernel.grad_update_var = self.kernel_t
@@ -342,12 +338,13 @@ class Conv2D_bin(_Conv):
         return tmp
 
     def call(self, inputs):
-        # assign_t = tf.cond(self.is_train,
-        #                    lambda: tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic)),
-        #                    lambda: tf.assign(self.kernel, self.kernel_t))
-        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic, is_train=self.is_train))
-        # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
+        # TODO: only clip in training mode
+        assign_t = tf.assign(self.kernel_t, tf.clip_by_value(self.kernel_t, -1, 1))
         with tf.control_dependencies([assign_t]):
+            assign_b = tf.assign(self.kernel,
+                                 binarize(self.kernel_t, stochastic=self.stochastic, is_train=self.is_train))
+        # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
+        with tf.control_dependencies([assign_t, assign_b]):
             return super(Conv2D_bin, self).call(inputs)
 
 
@@ -413,7 +410,7 @@ class Dense_bin(Dense):
         self.kernel_t = tf.get_variable('kernel_t',
                                         shape=self.kernel.get_shape(),
                                         initializer=self.kernel_initializer,
-                                        regularizer=log_barrier_regularizer(),
+                                        regularizer=self.kernel_regularizer,
                                         trainable=False,
                                         dtype=self.dtype)
         self.kernel.grad_update_var = self.kernel_t
@@ -422,9 +419,7 @@ class Dense_bin(Dense):
         return tmp
 
     def call(self, inputs):
-        # assign_t = tf.cond(self.is_train,
-        #                    lambda: tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic)),
-        #                    lambda: tf.assign(self.kernel, self.kernel_t))
+        # TODO: only clip in training mode
         assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic, is_train=self.is_train))
         # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
         with tf.control_dependencies([assign_t]):

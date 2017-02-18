@@ -33,8 +33,8 @@ import binary_connect as bc
 
 # Basic model parameters as external flags.
 FLAGS = tf.app.flags.FLAGS
-tf.app.flags.DEFINE_integer('max_steps', 500000, 'Max number of epochs.')
-tf.app.flags.DEFINE_integer('batch_size', 50, 'Batch size.  Must divide evenly into the dataset sizes.')
+tf.app.flags.DEFINE_integer('max_steps', 225000, 'Max number of steps.')
+tf.app.flags.DEFINE_integer('batch_size', 100, 'Batch size.  Must divide evenly into the dataset sizes.')
 tf.app.flags.DEFINE_integer('learning_rate', 0.01, 'Initial learning rate.')
 tf.app.flags.DEFINE_string('log_dir', '.\\log', 'Directory to put the log data.')
 tf.app.flags.DEFINE_string('run_name', '', 'Name for the run (for logging).')
