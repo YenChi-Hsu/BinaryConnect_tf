@@ -10,8 +10,9 @@ The code was tested on windows 7/8.1/10.
 
 # Usage
 To train a model run [runme_train.py](runme_train.py).
-Toggle binary training using `--binary=True/False`.
-Toggle stochastic training using `--stochastic=True/False`.
+
+* Toggle binary training using `--binary=True/False`.
+* Toggle stochastic training using `--stochastic=True/False`.
 
 CIFAR-10 dataset will be automatically downloaded to `./dataset` folder.
 
