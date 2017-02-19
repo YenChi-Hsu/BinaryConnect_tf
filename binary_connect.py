@@ -278,6 +278,7 @@ def evaluation(logits, labels):
     # acc, _ = tf.metrics.accuracy(labels, tf.reduce_max(logits, axis=1))
     correct = tf.nn.in_top_k(logits, labels, 1)
     # Return the number of true entries.
+    # correct = tf.Print(correct, [logits, labels])
     acc = tf.reduce_sum(tf.cast(correct, tf.int32))
     tf.summary.scalar('accuracy', acc)
     return acc

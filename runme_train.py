@@ -1,31 +1,26 @@
-# Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# BINARY-CONNECT
+# ==============
+# The code was built on top of MNIST tutorials in Tensorflow GitHub repository:
+# https://github.com/tensorflow/tensorflow/tree/master/tensorflow/examples/tutorials/mnist
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# It implements the paper BinaryConnect: Training Deep Neural Networks with binary weights during propagations
+# https://arxiv.org/abs/1511.00363
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
+# Was written by Itay Boneh and Asher Kabakovich, Tel-Aviv University
+#
 
 """Trains and Evaluates the Binary-Connect network using a feed dictionary."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# pylint: disable=missing-docstring
-import argparse
 import os.path
-import sys
 import time
 import datetime
-
+from utils import do_eval, fill_feed_dict
 from six.moves import xrange  # pylint: disable=redefined-builtin
+
 import tensorflow as tf
 
 import cifar10
@@ -40,9 +35,6 @@ tf.app.flags.DEFINE_string('log_dir', '.\\log', 'Directory to put the log data.'
 tf.app.flags.DEFINE_string('run_name', '', 'Name for the run (for logging).')
 tf.app.flags.DEFINE_boolean('binary', True, 'Toggle binary-connect usage.')
 tf.app.flags.DEFINE_boolean('stochastic', True, 'Switch between stochastic and deteministic binary-connect.')
-
-display_step = 20
-data_augmentation = False
 
 
 def placeholder_inputs(batch_size):
@@ -69,76 +61,10 @@ def placeholder_inputs(batch_size):
     return images_placeholder, labels_placeholder, train_placeholder
 
 
-def fill_feed_dict(data_set, images_pl, labels_pl, train_pl, train_val):
-    """Fills the feed_dict for training the given step.
-
-    A feed_dict takes the form of:
-    feed_dict = {
-        <placeholder>: <tensor of values to be passed for placeholder>,
-        ....
-    }
-
-    Args:
-      data_set: The set of images and labels, from input_data.read_data_sets()
-      images_pl: The images placeholder, from placeholder_inputs().
-      labels_pl: The labels placeholder, from placeholder_inputs().
-      train_pl: The training indicator placeholder, from placeholder_inputs().
-
-    Returns:
-      feed_dict: The feed dictionary mapping from placeholders to values.
-    """
-
-    # Create the feed_dict for the placeholders filled with the next
-    # `batch size` examples.
-    images_feed, labels_feed = data_set.next_batch(FLAGS.batch_size)
-    feed_dict = {
-        images_pl: images_feed,
-        labels_pl: labels_feed,
-        train_pl: train_val,
-    }
-    return feed_dict
-
-
-def do_eval(sess,
-            eval_correct,
-            images_placeholder,
-            labels_placeholder,
-            train_placeholder,
-            data_set, merged_summaries):
-    """Runs one evaluation against the full epoch of data.
-
-    Args:
-      sess: The session in which the model has been trained.
-      eval_correct: The Tensor that returns the number of correct predictions.
-      images_placeholder: The images placeholder.
-      labels_placeholder: The labels placeholder.
-      data_set: The set of images and labels to evaluate, from
-        input_data.read_data_sets().
-    """
-    # And run one epoch of eval.
-    true_count = 0  # Counts the number of correct predictions.
-    steps_per_epoch = data_set.num_examples // FLAGS.batch_size
-    num_examples = steps_per_epoch * FLAGS.batch_size
-    # summary = []
-    for step in xrange(steps_per_epoch):
-        feed_dict = fill_feed_dict(data_set,
-                                   images_placeholder,
-                                   labels_placeholder,
-                                   train_placeholder, False)
-        tp_ = sess.run(eval_correct, feed_dict=feed_dict)
-        true_count += tp_
-        # summary.append(summ_)
-
-    precision = float(true_count) / num_examples
-    print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
-          (num_examples, true_count, precision))
-    return precision
-
-
 def run_training():
-    """Train MNIST for a number of steps."""
+    """Train BinaryConnect."""
     # Get the sets of images and labels for training, validation, and
-    # test on MNIST.
+    # test on CIFAR10.
     data_sets = cifar10.read_data_sets(dst_dir='./dataset', validation_size=5000)
 
     # Tell TensorFlow that the model will be built into the default Graph.
@@ -221,7 +147,7 @@ def run_training():
             tp_value_total += acc_val
 
             # Write the summaries and print an overview fairly often.
-            if step % 100 == 0:
+            if step % 100 == 0 and step > 0:
                 # Print status to stdout.
                 images_freq = 100 * FLAGS.batch_size / duration
                 print('Step %d: loss = %.2f, correct = %.2f%% (%.3f images/sec)' %
@@ -231,7 +157,6 @@ def run_training():
                 tp_value_total = 0
                 duration = 0
                 # Update the events file.
-                # feed_dict[frequency_placeholder] = images_freq
                 summary_str = sess.run(summary, feed_dict=feed_dict)
                 summary_writer_train.add_summary(summary_str, step)
                 summary_writer_train.flush()
@@ -250,12 +175,8 @@ def run_training():
                 #         data_sets.train, summary)
                 # Evaluate against the validation set.
                 print('Validation Data Eval:')
-                accuracy_val = do_eval(sess,
-                                       eval_metric,
-                                       images_placeholder,
-                                       labels_placeholder,
-                                       train_placeholder,
-                                       data_sets.validation, summary)
+                accuracy_val = do_eval(sess, eval_metric, images_placeholder, labels_placeholder, train_placeholder,
+                                       data_sets.validation)
                 # TODO: find a way to collect summaries for validation
                 summary_str = sess.run(summary_val, feed_dict={val_acc_pl: accuracy_val})
                 summary_writer_val.add_summary(summary_str, step)
@@ -263,12 +184,7 @@ def run_training():
 
                 # Evaluate against the test set.
                 print('Test Data Eval:')
-                do_eval(sess,
-                        eval_metric,
-                        images_placeholder,
-                        labels_placeholder,
-                        train_placeholder,
-                        data_sets.test, summary)
+                do_eval(sess, eval_metric, images_placeholder, labels_placeholder, train_placeholder, data_sets.test)
 
 
 def main(_):
