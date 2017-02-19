@@ -34,7 +34,7 @@ tf.app.flags.DEFINE_string('log_dir', './log', 'Directory to put the log data.')
 tf.app.flags.DEFINE_string('run_name', '', 'Name for the run (for logging).')
 tf.app.flags.DEFINE_boolean('binary', True, 'Toggle binary-connect usage.')
 tf.app.flags.DEFINE_boolean('stochastic', True, 'Switch between stochastic and deteministic binary-connect.')
-tf.app.flags.DEFINE_string('model_path', './log/170219_200954binary_deterministicBIN_TrueSTOCH_False/model.ckpt-83499', 'Directory to put the log data.')
+tf.app.flags.DEFINE_string('model_path', './log/170219_200954binary_deterministicBIN_TrueSTOCH_True/model.ckpt', 'Path to a trained model.')
 
 
 def placeholder_inputs(batch_size):
