@@ -13,7 +13,10 @@ To train a model run [runme_train.py](runme_train.py).
 Toggle binary training using `--binary=True/False`.
 Toggle stochastic training using `--stochastic=True/False`.
 
+CIFAR-10 dataset will be automatically downloaded to `./dataset` folder.
+
 For additional configurations run `python run_me.py -h`.
+
 
 To test a model run [runme_test.py](runme_test.py).
 Pass a trained model path (ckpt file) by setting `--model_path`.
