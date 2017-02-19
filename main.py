@@ -39,7 +39,7 @@ tf.app.flags.DEFINE_integer('learning_rate', 0.01, 'Initial learning rate.')
 tf.app.flags.DEFINE_string('log_dir', '.\\log', 'Directory to put the log data.')
 tf.app.flags.DEFINE_string('run_name', '', 'Name for the run (for logging).')
 tf.app.flags.DEFINE_boolean('binary', True, 'Toggle binary-connect usage.')
-tf.app.flags.DEFINE_boolean('stochastic', False, 'Switch between stochastic and deteministic binary-connect.')
+tf.app.flags.DEFINE_boolean('stochastic', True, 'Switch between stochastic and deteministic binary-connect.')
 
 display_step = 20
 data_augmentation = False

@@ -134,15 +134,16 @@ def inference_ref(input, is_train, use_bnorm=False):
         x = tf.layers.max_pooling2d(inputs=x, pool_size=2, strides=2)
 
     with tf.name_scope('1024FC-1024FC-10FC'):
-        fun = tf.layers.dense if True else dense_bin
         x = tf.reshape(x, [x.get_shape()[0].value, -1])
-        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = fun(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
+        x = tf.layers.dense(inputs=x, units=1024, activation=tf.nn.relu, use_bias=not use_bnorm)
         if use_bnorm:
             x = tf.layers.batch_normalization(inputs=x, training=is_train)
-        x = fun(inputs=x, units=cifar10.NB_CLASSES)
+        x = tf.layers.dense(inputs=x, units=cifar10.NB_CLASSES)
+        if use_bnorm:
+            x = tf.layers.batch_normalization(inputs=x, training=is_train)
 
     return x
 
@@ -420,9 +421,12 @@ class Dense_bin(Dense):
 
     def call(self, inputs):
         # TODO: only clip in training mode
-        assign_t = tf.assign(self.kernel, binarize(self.kernel_t, stochastic=self.stochastic, is_train=self.is_train))
-        # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
+        assign_t = tf.assign(self.kernel_t, tf.clip_by_value(self.kernel_t, -1, 1))
         with tf.control_dependencies([assign_t]):
+            assign_b = tf.assign(self.kernel,
+                                 binarize(self.kernel_t, stochastic=self.stochastic, is_train=self.is_train))
+        # assign_t = tf.Print(assign_t, [self.kernel, self.kernel_t])
+        with tf.control_dependencies([assign_t, assign_b]):
             return super(Dense_bin, self).call(inputs)
 
 
